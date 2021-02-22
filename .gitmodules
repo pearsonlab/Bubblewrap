@@ -1,0 +1,3 @@
+[submodule "streamingSVD"]
+	path = streamingSVD
+	url = https://github.com/pearsonlab/streamingSVD
