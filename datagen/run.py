@@ -55,4 +55,6 @@ from streamingSVD.ssSVD import get_ssSVD
 Qtcoll, Scoll, Qcoll = get_ssSVD(projed, 3, 10, 10, 5)
 plots.plot_color(Qcoll[:, 0, 0], Qcoll[:, 1, 0], ivp["t"])
 
+plt.show()
+
 # %%

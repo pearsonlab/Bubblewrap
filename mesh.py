@@ -1,37 +1,29 @@
 import numpy as np
-import matplotlib.pylab as plt
-from scipy.integrate import solve_ivp
+from collections import deque
+from itertools import islice
 
 ## Class Mesh for set of adaptive mesh points to trace flows
 ## All using linear interpolation in places; could generalize later
 ## Terminology: mesh points have fixed neighbors, observation points have bounding points
 class Mesh():
 
-    def __init__(self, num, dim, **kwargs):
-        self.N = num        # number of mesh points
-        self.d = dim        # dimension of the space
-        self.spr = 1        # spring constant in potential
+    def __init__(self, num, dim=3, **kwargs):
+        # num is number of points per dimension
+        self.N = num*dim        # total number of mesh points
+        self.d = dim            # dimension of the space
+        self.spr = 1            # spring constant in potential
 
-        self.coords = [np.zeros(self.d)]*self.N     # coordinates for each mesh point
-        self.vectors = [np.zeros(self.d)]*self.N    # mangitude/direction components on each mesh point
+        self.coords = np.zeros(self.N,self.d)     # coordinates for each mesh point
+        self.vectors = np.zeros(self.N,self.d)    # mangitude/direction components on each mesh point
+        self.neighbors = [None]*self.N              # need to account for variable number of neighbors
         self.dist = np.zeros(self.N)                # distance matrix from midpoint observation to mesh points
         self.a = 1+np.zeros(self.d)                 # equil. pt for spring dist
 
         # define initial mesh point spacing; all vectors are 0 magnitude and direction
-        # TODO: initial update of vectors from 0 different than subsquent ones?
-
-        #TODO: static datastructure indexed by mesh point ID as above. Could initialize via callout method.
-        self.neighbors = None   
-        # ideally if coords are (N,d) this is (N,d,k) for k-nearest neighbors? or (N,k,d)
-        
+        self.initialize_mesh()
         
         # initially no observations
-        # TODO: separate class?
-        self.o_curr = None #np.zeros(self.d)
-        self.o_last = None
-        self.o_vect = None
-        self.o_mid = None
-
+        self.obs = Observations(self.d, M=10)
         self.pred = None
         
         ## other useful parameters
@@ -39,14 +31,25 @@ class Mesh():
         self.alpha = 1      # scale current mesh vector
         self.beta = 1       # scale observed vector
 
+    def initialize_mesh(self):
+        # sets coords and neighbors 
+        # neighbors: ideally if coords are (N,d) this is (N,k) containing k indices of 1-distance neighbors
+        
+        num = self.N/self.d
+        sl = [slice(0,num)]*self.d
+        self.coords = np.mgrid[sl].reshape((self.d, self.N)).T
+        # NOTE: could subtract CoM here
+
+        ## TODO: an actually good implementation of this; see manhatten
+        for i in np.arange(0,self.N):
+            d = np.linalg.norm(self.coords-self.coords[i], axis=1)
+            self.neighbors[i] = np.squeeze(np.argwhere(d==1))
+
     def observe(self, coord_new):
-        self.o_curr = coord_new
-        self.o_vect = self.o_curr - self.o_last
-        self.o_mid = self.o_curr + 0.5*self.o_vect
-
-        self.dist, self.bounding = bounding(self.o_mid, self.coords, num=4)
-
-        # self.o_last = self.o_curr
+        # update observation history
+        self.obs.new_obs(coord_new)
+        # find new bounding points and their distances to the observed midpoint
+        self.dist, self.bounding = bounding(self.obs.mid, self.coords)
 
     def predict(self, p=1):
         # given new observed vector and its neighbor, what's our pred for that point
@@ -77,19 +80,15 @@ class Mesh():
     def rotate(self, scaling='global'):
         if scaling=='global':
             # apply same rotational scaling to all points
-            self.vectors = (self.alpha*self.vectors + self.beta*self.o_vect)/(self.alpha+self.beta)
+            self.vectors = (self.alpha*self.vectors + self.beta*self.obs.vect)/(self.alpha+self.beta)
 
         elif scaling=='dist':
             # apply rotation scaled by distance to observed midpoint
             norm = (self.alpha+self.beta)*self.dist #CHECK dimension here
-            self.vectors = (self.alpha*(self.dist)@self.vectors + self.beta*(self.dist)@self.o_vect)/norm
+            self.vectors = (self.alpha*(self.dist)@self.vectors + self.beta*(self.dist)@self.obs.vect)/norm
 
     def shift(self):
         # use dist scaling, global would be ridiculous
-        pass
-
-    def evaluate(self):
-        # effectively evaluate the 'monitor' function on the grid to equipartition uncertainty ?
         pass
 
     def grad_step(self):
@@ -108,6 +107,48 @@ class Mesh():
         poten = self.spr*(dists-self.a)
 
         self.coords += poten * 1 #(step_size_here)
+
+
+## Class to store last few observations inside the mesh
+## TODO: Maybe split into separate file, if it evolves into a more complex class
+class Observations():
+    def __init__(self, dim, M=5):
+        self.M = M          # how many observed points to hold in memory
+        self.d = dim        # dimension of coordinate system
+
+        self.curr = None #np.zeros(self.d)
+        self.last = None
+        self.vect = None
+        self.mid = None
+
+        self.saved_obs = deque(maxlen=self.M)
+
+    def new_obs(self, coord_new):
+        self.curr = coord_new
+        self.vect = self.curr - self.last
+        self.mid = self.curr + 0.5*self.vect
+
+        # if len(self.saved_obs)==self.M:
+        #     self.saved_obs.popleft()
+        self.saved_obs.append(self.curr)
+
+    def get_last_obs(self, n=1):
+        # get the last n observations, n<=self.M
+        # returns list in order last obs, last-1 obs, last-2 obs, etc
+        if n>self.M:
+            n=self.M
+        self.saved_obs.rotate(-n)
+        last = list(islice(self.saved_obs,0,n,1)).reverse()
+        self.saved_obs.rotate(n)
+        return last
+
+
+def center_mass(self, points):
+    # Compute center of mass of points, assuming equal masses here
+    # points is a list of coords arrays [array((dim,))]*N
+    # TODO: use average(..., weight=mass_array) in future; can weight by e.g. similarity or flow vectors
+
+    return np.mean(points, axis=0) 
 
 
 def bounding(ref, points, num=4):
