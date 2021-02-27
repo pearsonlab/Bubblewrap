@@ -4,9 +4,9 @@
 
 
 ## Current Tasks
-- [] Add noise to data generation
-- [] Compute bounding points in N-D
-- [] Efficient neighboring points computation
+- [ ] Add noise to data generation
+- [ ] Compute bounding points in N-D
+- [ ] Efficient neighboring points computation
 
 
 ## Conventions
