@@ -2,28 +2,32 @@ import numpy as np
 from collections import deque
 from itertools import islice
 
+np.set_printoptions(precision=3)
+np.set_printoptions(suppress=True)
+
 ## Class Mesh for set of adaptive mesh points to trace flows
 ## All using linear interpolation in places; could generalize later
 ## Terminology: mesh points have fixed neighbors, observation points have bounding points
 class Mesh():
 
-    def __init__(self, num, dim=3, **kwargs):
-        # num is number of points per dimension
-        self.N = num*dim        # total number of mesh points
+    def __init__(self, num, dim=3, M=10, **kwargs):
+        self.num = num          # num is number of points per dimension
+        self.N = num**dim       # total number of mesh points
         self.d = dim            # dimension of the space
         self.spr = 1            # spring constant in potential
+        self.step = 1
 
-        self.coords = np.zeros(self.N,self.d)     # coordinates for each mesh point
-        self.vectors = np.zeros(self.N,self.d)    # mangitude/direction components on each mesh point
+        self.coords = np.zeros((self.N,self.d), dtype='float32')     # coordinates for each mesh point
+        self.vectors = np.zeros((self.N,self.d), dtype='float32')    # mangitude/direction components on each mesh point
         self.neighbors = [None]*self.N              # need to account for variable number of neighbors
         self.dist = np.zeros(self.N)                # distance matrix from midpoint observation to mesh points
-        self.a = 1+np.zeros(self.d)                 # equil. pt for spring dist
+        self.a = 10 #+np.zeros(self.d)                 # equil. pt for spring dist  #TODO: set this as variable
 
         # define initial mesh point spacing; all vectors are 0 magnitude and direction
         self.initialize_mesh()
         
         # initially no observations
-        self.obs = Observations(self.d, M=10)
+        self.obs = Observations(self.d, M=M)
         self.pred = None
         
         ## other useful parameters
@@ -35,15 +39,23 @@ class Mesh():
         # sets coords and neighbors 
         # neighbors: ideally if coords are (N,d) this is (N,k) containing k indices of 1-distance neighbors
         
-        num = self.N/self.d
-        sl = [slice(0,num)]*self.d
-        self.coords = np.mgrid[sl].reshape((self.d, self.N)).T
+        sl = [slice(0,self.num)]*self.d
+        self.coords = np.mgrid[sl].reshape((self.d, self.N)).astype('float32').T
         # NOTE: could subtract CoM here
+        # TODO: add initial scale to warm up phase
+        scale = 10
+        self.coords *= scale
 
         ## TODO: an actually good implementation of this; see manhatten
         for i in np.arange(0,self.N):
             d = np.linalg.norm(self.coords-self.coords[i], axis=1)
-            self.neighbors[i] = np.squeeze(np.argwhere(d==1))
+            self.neighbors[i] = np.squeeze(np.argwhere(d==scale))
+
+        # TODO: decide on initialization for vectors; zero seems less good
+        # Currently using random directions, length 1 (very small compared to mesh size atm)
+        self.vectors = np.random.random((self.N, self.d)) - 0.5
+        scale = np.linalg.norm(self.vectors, axis=1)
+        self.vectors = ((self.vectors.T)/scale).T
 
     def observe(self, coord_new):
         # update observation history
@@ -61,11 +73,11 @@ class Mesh():
         if np.any(dists==0): #TODO: use min dist not zero, set param elsewhere
             # we have a prediction at this point already, no need to interp
             # bounding is sorted so it's the first one
-            return self.vectors[self.bounding[0]]
+            self.pred = self.vectors[self.bounding[0]]
 
         weights = 1/(dists**p)
         self.weights = weights
-        return weights.dot(self.vectors[self.bounding])/np.sum(weights)
+        self.pred = weights.dot(self.vectors[self.bounding])/np.sum(weights)
 
     def grad_pred(self):
         # NOTE: assuming p=1 here
@@ -74,9 +86,72 @@ class Mesh():
         Z = np.sum(self.weights)
 
         # need to restrict to active bounding points
-        grad = -self.vectors/(Z*self.dist**2) + V/(Z*self.dist**2)
-        return grad
+        dist = self.dist[self.bounding]
 
+        # TODO: closed-form
+        # grad = np.zeros((self.bounding.shape[0], self.d))
+        # for i,b in np.ndenumerate(self.bounding):
+        #     grad[i] = -(self.vectors[b].T)/(Z*dist[i]**2) + V.T/(Z*dist[i]**2)
+        # # grad = -(self.vectors[self.bounding].T)/(Z*dist**2) + V.T/(Z*dist**2)
+        # import pdb; pdb.set_trace()
+
+        dwdx = (self.obs.mid - self.coords[self.bounding]) / dist[:,None]**3 
+
+        grad = 2*(V-self.obs.vect)*dwdx*(self.vectors[self.bounding]-V)/Z
+        # np.abs? no effect?
+
+        ####
+        # print('------original min value', np.sum(np.abs(V-self.obs.vect)**2))
+
+        # TODO: need to also deal with boundary case when prediction is on a mesh point
+        self.coords[self.bounding] -= grad * self.step #(step size)
+
+        grad_vec = 2*(V-self.obs.vect)/(Z*dist[:,None])
+        
+        self.vectors[self.bounding] -= grad_vec *  self.step
+
+        # ###########
+        # dists = np.linalg.norm(self.coords - self.obs.curr, axis=1)  #new distances
+        # dist = dists[self.bounding] 
+        # weights = 1/(dist)      ## new prediciton
+        # V = weights.dot(self.vectors[self.bounding])/np.sum(weights)
+        # print('------new min value', np.sum(np.abs(V-self.obs.vect)**2))
+
+        self.step /= 1.001
+
+
+    def evaluate(self):
+        # for all observations in memory
+        pass
+
+    def relax(self): 
+        # step done after gradient and point movings
+        # For each mesh point, get its neighbors and distances
+        # TODO: better implementation; can at least group by number of neighbors
+
+        for i in np.arange(0,self.N):
+            dists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:,None], axis=1) #possibly .T; output (N,d,k)
+            try:
+                dij = np.linalg.norm(dists, axis=1)
+                poten = self.spr*(dij-self.a)*(dists.T)/dij
+            
+                direc = np.sign(self.coords[i] - self.coords[self.neighbors[i]])
+
+                self.coords[self.neighbors[i]] += poten.T * direc * self.step/10 #(step_size_here)
+            except:
+                import pdb; pdb.set_trace()
+
+            newdists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:,None], axis=1)
+            meand = np.mean(newdists)
+            if not meand or meand>100:
+                print('nan here')
+                print('mean dist', meand)
+
+                import pdb; pdb.set_trace()
+
+        #TODO: this needs to change if we're thinking of spatial propagation
+
+    
     def rotate(self, scaling='global'):
         if scaling=='global':
             # apply same rotational scaling to all points
@@ -87,26 +162,27 @@ class Mesh():
             norm = (self.alpha+self.beta)*self.dist #CHECK dimension here
             self.vectors = (self.alpha*(self.dist)@self.vectors + self.beta*(self.dist)@self.obs.vect)/norm
 
-    def shift(self):
-        # use dist scaling, global would be ridiculous
-        pass
+    def shift_mesh(self):
+        # for initialization after mesh.. redo order sometime
+        com = center_mass(self.coords)
+        self.coords -= com
+
+        # for later ease of comparison
+        self.coords0 = self.coords.copy()
+        
 
     def grad_step(self):
         # compute gradient and take a step in that direction
         # |obs - pred|^2 + k|d_ij - a|^2 
         pass
 
-    def grad_step_vec(self):
-        # same, but for vectors, not mesh point locations
-        pass
-
-    def relax(self): 
-        # step done after gradient and point movings
-        # For each mesh point, get its neighbors and distances
-        dists = np.linalg.norm(self.coords - self.neighbors) #possibly .T; output (N,d,k)
-        poten = self.spr*(dists-self.a)
-
-        self.coords += poten * 1 #(step_size_here)
+    def quiet(self, data):
+        # add data to observations as initial set
+        # don't move mesh in any way (move this? also update flow vecs)
+        for i in np.arange(0,data.shape[0]):
+            self.obs.saved_obs.append(data[i])
+        
+        self.obs.last = self.obs.saved_obs[i]
 
 
 ## Class to store last few observations inside the mesh
@@ -117,7 +193,7 @@ class Observations():
         self.d = dim        # dimension of coordinate system
 
         self.curr = None #np.zeros(self.d)
-        self.last = None
+        self.last = np.zeros(self.d)
         self.vect = None
         self.mid = None
 
@@ -135,6 +211,7 @@ class Observations():
     def get_last_obs(self, n=1):
         # get the last n observations, n<=self.M
         # returns list in order last obs, last-1 obs, last-2 obs, etc
+        ## TODO: this doesn't work
         if n>self.M:
             n=self.M
         self.saved_obs.rotate(-n)
@@ -143,7 +220,7 @@ class Observations():
         return last
 
 
-def center_mass(self, points):
+def center_mass(points):
     # Compute center of mass of points, assuming equal masses here
     # points is a list of coords arrays [array((dim,))]*N
     # TODO: use average(..., weight=mass_array) in future; can weight by e.g. similarity or flow vectors
@@ -151,13 +228,72 @@ def center_mass(self, points):
     return np.mean(points, axis=0) 
 
 
-def bounding(ref, points, num=4):
+def bounding(ref, points, num=2):
     # choose num nearest bounding points on the mesh (e.g. 4, assuming roughly square 2D grid)
     # of ref given set of points, that is the new observation
 
-    dist = np.linalg.norm(points - ref)             #TODO: check performance vs math.dist, scipy euclidean, etc
+    dist = np.linalg.norm(points - ref, axis=1)             #TODO: check performance vs math.dist, scipy euclidean, etc
     bounding = np.argsort(dist)[:num]              #TODO: same note, check argpartition
 
     # NOTE: need a method for bounding, not just nearest, points
 
     return dist, bounding
+
+
+if __name__ == "__main__":
+
+    from datagen.models import lorenz
+    from scipy.integrate import solve_ivp
+
+    # Define parameters
+    np.random.seed(42)
+
+    T = 400
+    x0, y0, z0 = (0.1, 0.1, 0.1)
+    dim = 3
+    M = 10
+    num = 10
+
+    # Generate some data; shape (T,dim)
+    sln = solve_ivp(lorenz, (0, T), (x0, y0, z0), args=(), dense_output=True, rtol=1e-6)
+    t = np.linspace(0,T,T)
+    data = sln.sol(t).T 
+
+    # data = np.zeros((T,dim))
+    # data[:,0] = sln["x"]
+    # data[:,1] = sln["y"]
+    # data[:,2] = sln["z"]
+
+    # Initialize mesh [around data]
+    mesh = Mesh(num, dim=dim, M=M)
+    # Give first few obs without doing anything
+    mesh.quiet(data[:M,:])
+    mesh.shift_mesh()
+
+    for i in np.arange(0,T-M):
+        # get new observation
+        mesh.observe(data[i+M])
+        # get our prediction for that obs
+        mesh.predict()
+        # spatial gradient update
+        mesh.grad_pred()
+        # adjust vectors of bounding points
+        # mesh.grad_vec()
+        # spring relaxation gradient update
+        mesh.relax()
+
+    import matplotlib.pylab as plt
+    # mask not moved points
+    m = np.sum(mesh.coords0 - mesh.coords, axis=1) == 0
+    # import pdb; pdb.set_trace()
+    mesh.vectors[m] = np.zeros(dim)
+
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+
+    ax.quiver(mesh.coords[:,0], mesh.coords[:,1], mesh.coords[:,2], mesh.vectors[:,2],mesh.vectors[:,1], mesh.vectors[:,2])
+    cmap = plt.cm.plasma
+    for i in range(0,T):
+        ax.scatter(data[i,0], data[i,1], data[i,2], color=cmap(i/T))
+    
+    plt.show()
