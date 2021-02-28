@@ -148,13 +148,13 @@ class Mesh():
             
                 direc = np.sign(self.coords[i] - self.coords[self.neighbors[i]])
 
-                self.coords[self.neighbors[i]] += poten.T * direc * self.step/10 #(step_size_here)
+                self.coords[self.neighbors[i]] += poten.T * direc * self.step/5 #(step_size_here)
             except:
                 import pdb; pdb.set_trace()
 
             newdists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:,None], axis=1)
             meand = np.mean(newdists)
-            if not meand or meand>100:
+            if not meand or meand>200:
                 print('nan here')
                 print('mean dist', meand)
 
@@ -239,7 +239,7 @@ def center_mass(points):
     return np.mean(points, axis=0) 
 
 
-def bounding(ref, points, num=2):
+def bounding(ref, points, num=8):
     # choose num nearest bounding points on the mesh (e.g. 4, assuming roughly square 2D grid)
     # of ref given set of points, that is the new observation
 
@@ -259,15 +259,16 @@ if __name__ == "__main__":
     # Define parameters
     np.random.seed(42)
 
-    T = 400
-    x0, y0, z0 = (1, 1, 1)
+    T = 500
+    dt = 0.1
+    x0, y0, z0 = (0.1, 0.1, 0.1)
     dim = 3
     M = 10
     num = 10
 
     # Generate some data; shape (T,dim)
     sln = solve_ivp(lorenz, (0, T), (x0, y0, z0), args=(), dense_output=True, rtol=1e-6)
-    t = np.linspace(0,T,T)
+    t = np.linspace(0,dt*T,T)
     data = sln.sol(t).T 
 
     # data = np.zeros((T,dim))
@@ -299,12 +300,23 @@ if __name__ == "__main__":
     # import pdb; pdb.set_trace()
     mesh.vectors[m] = np.zeros(dim)
 
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
+    ###### 3d plot
+    # fig = plt.figure()
+    # ax = fig.gca(projection='3d')
 
-    ax.quiver(mesh.coords[:,0], mesh.coords[:,1], mesh.coords[:,2], mesh.vectors[:,2],mesh.vectors[:,1], mesh.vectors[:,2])
-    cmap = plt.cm.plasma
-    for i in range(0,T):
-        ax.scatter(data[i,0], data[i,1], data[i,2], color=cmap(i/T))
-    
+    # ax.quiver(mesh.coords[:,0], mesh.coords[:,1], mesh.coords[:,2], mesh.vectors[:,0],mesh.vectors[:,1], mesh.vectors[:,2])
+    # cmap = plt.cm.plasma
+    # for i in range(0,T):
+    #     ax.scatter(data[i,0], data[i,1], data[i,2], color=cmap(i/T))
+
+    ###### 2d plots
+    from datagen import plots
+    fig, axs = plt.subplots(ncols=3)
+    plots.plot_color(data[:,0], data[:,1], t, axs[0])
+    axs[0].quiver(mesh.coords[:,0], mesh.coords[:,1], mesh.vectors[:,0],mesh.vectors[:,1])
+    plots.plot_color(data[:,0], data[:,2], t, axs[1])
+    axs[1].quiver(mesh.coords[:,0], mesh.coords[:,2], mesh.vectors[:,0],mesh.vectors[:,2])
+    plots.plot_color(data[:,1], data[:,2], t, axs[2])
+    axs[2].quiver(mesh.coords[:,1], mesh.coords[:,2], mesh.vectors[:,1],mesh.vectors[:,2])
+
     plt.show()
