@@ -24,7 +24,7 @@ class Mesh():
         self.a = 10 #+np.zeros(self.d)                 # equil. pt for spring dist  #TODO: set this as variable
 
         # define initial mesh point spacing; all vectors are 0 magnitude and direction
-        self.initialize_mesh()
+        # self.initialize_mesh()
         
         # initially no observations
         self.obs = Observations(self.d, M=M)
@@ -43,13 +43,24 @@ class Mesh():
         self.coords = np.mgrid[sl].reshape((self.d, self.N)).astype('float32').T
         # NOTE: could subtract CoM here
         # TODO: add initial scale to warm up phase
-        scale = 10
-        self.coords *= scale
 
+        # for initialization after mesh.. redo order sometime
+        com = center_mass(self.coords)
+        obs_com = center_mass(self.obs.saved_obs)
+
+        self.coords -= com
+        scale = np.max(np.abs(self.obs.saved_obs-obs_com))*2/self.num
+        self.coords *= scale
+        self.coords += obs_com
+
+        # for later ease of comparison
+        self.coords0 = self.coords.copy()
+
+        ##### neighbors
         ## TODO: an actually good implementation of this; see manhatten
         for i in np.arange(0,self.N):
             d = np.linalg.norm(self.coords-self.coords[i], axis=1)
-            self.neighbors[i] = np.squeeze(np.argwhere(d==scale))
+            self.neighbors[i] = np.squeeze(np.argwhere(np.abs(d-scale)<1e-4))
 
         # TODO: decide on initialization for vectors; zero seems less good
         # Currently using random directions, length 1 (very small compared to mesh size atm)
@@ -162,13 +173,13 @@ class Mesh():
             norm = (self.alpha+self.beta)*self.dist #CHECK dimension here
             self.vectors = (self.alpha*(self.dist)@self.vectors + self.beta*(self.dist)@self.obs.vect)/norm
 
-    def shift_mesh(self):
-        # for initialization after mesh.. redo order sometime
-        com = center_mass(self.coords)
-        self.coords -= com
+    # def shift_mesh(self):
+    #     # for initialization after mesh.. redo order sometime
+    #     com = center_mass(self.coords)
+    #     self.coords -= com
 
-        # for later ease of comparison
-        self.coords0 = self.coords.copy()
+    #     # for later ease of comparison
+    #     self.coords0 = self.coords.copy()
         
 
     def grad_step(self):
@@ -249,7 +260,7 @@ if __name__ == "__main__":
     np.random.seed(42)
 
     T = 400
-    x0, y0, z0 = (0.1, 0.1, 0.1)
+    x0, y0, z0 = (1, 1, 1)
     dim = 3
     M = 10
     num = 10
@@ -268,7 +279,7 @@ if __name__ == "__main__":
     mesh = Mesh(num, dim=dim, M=M)
     # Give first few obs without doing anything
     mesh.quiet(data[:M,:])
-    mesh.shift_mesh()
+    mesh.initialize_mesh()
 
     for i in np.arange(0,T-M):
         # get new observation
