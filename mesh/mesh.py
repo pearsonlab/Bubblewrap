@@ -3,6 +3,8 @@ from collections import deque
 from itertools import islice
 
 import numpy as np
+from scipy.optimize import linprog
+from scipy.spatial import Delaunay
 
 np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
@@ -75,7 +77,7 @@ class Mesh:
         # update observation history
         self.obs.new_obs(coord_new)
         # find new bounding points and their distances to the observed midpoint
-        self.dist, self.bounding = bounding(self.obs.mid, self.coords)
+        self.dist, self.bounding = bounding(self.coords, self.obs.mid)
 
     def predict(self, p=1):
         # given new observed vector and its neighbor, what's our pred for that point
@@ -248,16 +250,50 @@ def center_mass(points):
     return np.mean(points, axis=0)
 
 
-def bounding(ref, points, num=8):
+def check_bounded(points, x):
+    # From https://stackoverflow.com/a/43564754.
+    n_points = len(points)
+    c = np.zeros(n_points)
+    A = np.r_[points.T, np.ones((1, n_points))]
+    b = np.r_[x, np.ones(1)]
+    lp = linprog(c, A_eq=A, b_eq=b)
+    return lp.success
+
+
+def bounding(points, ref, num=8):
     # choose num nearest bounding points on the mesh (e.g. 4, assuming roughly square 2D grid)
     # of ref given set of points, that is the new observation
+    dirs = points - ref
+    zero = ref - ref
+    
+    # TODO: Use some tree data structure, r-tree, etc.
+    dist = np.linalg.norm(dirs, axis=1)
+    closest = np.argsort(dist)
+    
+    if not check_bounded(dirs[closest[:num]], zero):
+        # Add closest points one by one until enclosed.
+        k = 1
+        hull = Delaunay(dirs[closest[: num + k]])
+        while (simp := hull.find_simplex(zero)) == -1:  # not bounded
+            hull = Delaunay(dirs[closest[: num + k]])
+            # hull.add_points(dirs[np.newaxis, closest[idx], :])  # TODO: Need to deal with non-uniqueness.
+            k += 1
 
-    dist = np.linalg.norm(
-        points - ref, axis=1
-    )  # TODO: check performance vs math.dist, scipy euclidean, etc
-    bounding = np.argsort(dist)[:num]  # TODO: same note, check argpartition
+        # Add simplex vertices, then next closest points.
+        important = closest[hull.simplices[simp]]
+        bounding = np.zeros(num, dtype=int)
+        bounding[: important.size] = important
+        k = 0
+        for i in range(important.size, num):
+            while closest[k] in important:
+                k += 1
+            bounding[i] = closest[k]
+            k += 1
 
-    # NOTE: need a method for bounding, not just nearest, points
+    else:
+        bounding = closest[:num]
+
+    # assert check_bounded(points, ref)
 
     return dist, bounding
 
