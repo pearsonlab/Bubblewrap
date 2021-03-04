@@ -18,11 +18,16 @@ class Mesh:
         self.spr = 1  # spring constant in potential
         self.step = 1
 
-        self.coords = np.zeros((self.N, self.d), dtype="float32")  # coordinates for each mesh point
-        self.vectors = np.zeros((self.N, self.d), dtype="float32")  # magnitude/direction components on each mesh point
-        self.neighbors = [None] * self.N  # need to account for variable number of neighbors
-        self.dist = np.zeros(self.N)  # distance matrix from midpoint observation to mesh points
-        self.a = 10  # +np.zeros(self.d)                 # equil. pt for spring dist  #TODO: set this as variable
+        # coordinates for each mesh point
+        self.coords = np.zeros((self.N, self.d), dtype="float32")  
+        # magnitude/direction components on each mesh point
+        self.vectors = np.zeros((self.N, self.d), dtype="float32")  
+        # (variable number of) neighbors for each mesh point
+        self.neighbors = [None] * self.N  
+        # distance matrix from midpoint observation to mesh points
+        self.dist = np.zeros(self.N)  
+        # equil. pt for spring dist  #TODO: set this as variable
+        self.a = 10  # +np.zeros(self.d)                 
 
         # define initial mesh point spacing; all vectors are 0 magnitude and direction
         # self.initialize_mesh()
@@ -239,7 +244,8 @@ class Observations:
 def center_mass(points):
     # Compute center of mass of points, assuming equal masses here
     # points is a list of coords arrays [array((dim,))]*N
-    # TODO: use average(..., weight=mass_array) in future; can weight by e.g. similarity or flow vectors
+    # TODO: use average(..., weight=mass_array) in future; 
+    # can weight by e.g. similarity or flow vectors
 
     return np.mean(points, axis=0)
 
