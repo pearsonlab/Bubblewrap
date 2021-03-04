@@ -1,8 +1,6 @@
-#%%
+import numpy as np
 from collections import deque
 from itertools import islice
-
-import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import Delaunay
 
@@ -15,15 +13,13 @@ np.set_printoptions(suppress=True)
 class Mesh:
     def __init__(self, num, dim=3, M=10, **kwargs):
         self.num = num  # num is number of points per dimension
-        self.N = num ** dim  # total number of mesh points
+        self.N = num**dim  # total number of mesh points
         self.d = dim  # dimension of the space
         self.spr = 1  # spring constant in potential
         self.step = 1
 
         self.coords = np.zeros((self.N, self.d), dtype="float32")  # coordinates for each mesh point
-        self.vectors = np.zeros(
-            (self.N, self.d), dtype="float32"
-        )  # magnitude/direction components on each mesh point
+        self.vectors = np.zeros((self.N, self.d), dtype="float32")  # magnitude/direction components on each mesh point
         self.neighbors = [None] * self.N  # need to account for variable number of neighbors
         self.dist = np.zeros(self.N)  # distance matrix from midpoint observation to mesh points
         self.a = 10  # +np.zeros(self.d)                 # equil. pt for spring dist  #TODO: set this as variable
@@ -54,7 +50,7 @@ class Mesh:
         obs_com = center_mass(self.obs.saved_obs)
 
         self.coords -= com
-        scale = np.max(np.abs(self.obs.saved_obs - obs_com)) * 2 / self.num
+        scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2 / self.num
         self.coords *= scale
         self.coords += obs_com
 
@@ -71,19 +67,21 @@ class Mesh:
         # Currently using random directions, length 1 (very small compared to mesh size atm)
         self.vectors = np.random.random((self.N, self.d)) - 0.5
         scale = np.linalg.norm(self.vectors, axis=1)
-        self.vectors = ((self.vectors.T) / scale).T
+        self.vectors = (self.vectors.T / scale).T
 
     def observe(self, coord_new):
         # update observation history
         self.obs.new_obs(coord_new)
-        # find new bounding points and their distances to the observed midpoint
-        self.dist, self.bounding = bounding(self.coords, self.obs.mid)
+        
 
     def predict(self, p=1):
         # given new observed vector and its neighbor, what's our pred for that point
         # p is power for inverse dist weighting, higher for smoother interp
         # TODO: sanity check for blow-ups here, though springs should prevent it
-
+        
+        # find new bounding points and their distances to the observed midpoint
+        self.dist, self.bounding = bounding(self.coords, self.obs.mid)
+        
         dists = self.dist[self.bounding]
 
         if np.any(dists == 0):  # TODO: use min dist not zero, set param elsewhere
@@ -91,7 +89,7 @@ class Mesh:
             # bounding is sorted so it's the first one
             self.pred = self.vectors[self.bounding[0]]
 
-        weights = 1 / (dists ** p)
+        weights = 1 / (dists**p)
         self.weights = weights
         self.pred = weights.dot(self.vectors[self.bounding]) / np.sum(weights)
 
@@ -111,9 +109,9 @@ class Mesh:
         # # grad = -(self.vectors[self.bounding].T)/(Z*dist**2) + V.T/(Z*dist**2)
         # import pdb; pdb.set_trace()
 
-        dwdx = (self.obs.mid - self.coords[self.bounding]) / dist[:, None] ** 3
+        dwdx = (self.obs.mid - self.coords[self.bounding]) / dist[:, None]**3
 
-        grad = 2 * (V - self.obs.vect) * dwdx * (self.vectors[self.bounding] - V) / Z
+        grad = 2*(V - self.obs.vect) * dwdx * (self.vectors[self.bounding] - V) / Z
         # np.abs? no effect?
 
         ####
@@ -122,7 +120,7 @@ class Mesh:
         # TODO: need to also deal with boundary case when prediction is on a mesh point
         self.coords[self.bounding] -= grad * self.step  # (step size)
 
-        grad_vec = 2 * (V - self.obs.vect) / (Z * dist[:, None])
+        grad_vec = 2*(V - self.obs.vect) / (Z*dist[:, None])
 
         self.vectors[self.bounding] -= grad_vec * self.step
 
@@ -149,11 +147,11 @@ class Mesh:
             # possibly .T; output (N,d,k)
             try:
                 dij = np.linalg.norm(dists, axis=1)
-                poten = self.spr * (dij - self.a) * (dists.T) / dij
+                poten = self.spr*(dij - self.a)*(dists.T)/dij
 
                 direc = np.sign(self.coords[i] - self.coords[self.neighbors[i]])
 
-                self.coords[self.neighbors[i]] += poten.T * direc * self.step / 5  # (step_size_here)
+                self.coords[self.neighbors[i]] += poten.T * direc * self.step/5  # (step_size_here)
             except:
                 import pdb
 
@@ -174,16 +172,12 @@ class Mesh:
     def rotate(self, scaling="global"):
         if scaling == "global":
             # apply same rotational scaling to all points
-            self.vectors = (self.alpha * self.vectors + self.beta * self.obs.vect) / (
-                self.alpha + self.beta
-            )
+            self.vectors = (self.alpha*self.vectors + self.beta*self.obs.vect)/(self.alpha + self.beta)
 
         elif scaling == "dist":
             # apply rotation scaled by distance to observed midpoint
             norm = (self.alpha + self.beta) * self.dist  # CHECK dimension here
-            self.vectors = (
-                self.alpha * (self.dist) @ self.vectors + self.beta * (self.dist) @ self.obs.vect
-            ) / norm
+            self.vectors = (self.alpha*self.dist @ self.vectors + self.beta*self.dist @ self.obs.vect)/norm
 
     # def shift_mesh(self):
     #     # for initialization after mesh.. redo order sometime
@@ -224,7 +218,7 @@ class Observations:
     def new_obs(self, coord_new):
         self.curr = coord_new
         self.vect = self.curr - self.last
-        self.mid = self.curr + 0.5 * self.vect
+        self.mid = self.curr + 0.5*self.vect
 
         # if len(self.saved_obs)==self.M:
         #     self.saved_obs.popleft()
@@ -259,6 +253,10 @@ def check_bounded(points, x):
     lp = linprog(c, A_eq=A, b_eq=b)
     return lp.success
 
+def dumb_bounding(points, ref, num=8):
+    dist = np.linalg.norm(points - ref, axis=1) 
+    bounding = np.argsort(dist)[:num]
+    return dist, bounding
 
 def bounding(points, ref, num=8):
     # choose num nearest bounding points on the mesh (e.g. 4, assuming roughly square 2D grid)
@@ -315,7 +313,7 @@ if __name__ == "__main__":
 
     # Generate some data; shape (T,dim)
     sln = solve_ivp(lorenz, (0, T), (x0, y0, z0), args=(), dense_output=True, rtol=1e-6)
-    t = np.linspace(0, dt * T, T)
+    t = np.linspace(0, dt*T, T)
     data = sln.sol(t).T
 
     # data = np.zeros((T,dim))
@@ -331,15 +329,16 @@ if __name__ == "__main__":
 
     for i in np.arange(0, T - M):
         # get new observation
-        mesh.observe(data[i + M])
-        # get our prediction for that obs
-        mesh.predict()
-        # spatial gradient update
-        mesh.grad_pred()
-        # adjust vectors of bounding points
-        # mesh.grad_vec()
-        # spring relaxation gradient update
-        mesh.relax()
+        mesh.observe(data[i+M])
+        for j in np.arange(0,3):
+            # get our prediction for that obs
+            mesh.predict()
+            # spatial gradient update
+            mesh.grad_pred()
+            # adjust vectors of bounding points
+            # mesh.grad_vec()
+            # spring relaxation gradient update
+            mesh.relax()
 
     import matplotlib.pylab as plt
 
