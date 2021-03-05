@@ -5,7 +5,7 @@ import networkx as nx
 import numpy as np
 from networkx.drawing.layout import spring_layout
 
-from core.utils import bounding, center_mass, dumb_bounding
+from field.utils import bounding, center_mass, dumb_bounding
 
 np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
