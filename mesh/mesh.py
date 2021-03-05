@@ -276,11 +276,23 @@ def dumb_bounding(points, ref, num=8):
     bounding = np.argsort(dist)[:num]
     return dist, bounding
 
-def bounding(points, ref, num=8):
-    # choose num nearest bounding points on the mesh (e.g. 4, assuming roughly square 2D grid)
-    # of ref given set of points, that is the new observation
+def bounding(points, ref, num=8, lim=20):
+    """Choose num nearest bounding points on the mesh (e.g. 4, assuming roughly square 2D grid)
+    of ref given set of points, that is the new observation.
+    
+    If cannot bound `ref` after considering `lim` nearest points, returns `num`-th nearest points.
+
+    Args:
+        points (np.ndarray): (n × d) Array of all points in mesh.
+        ref (np.ndarray): (n) Point of interest.
+        num (int, optional): Number of points to send back. Defaults to 8.
+        lim (int, optional): Number of nearest points to check for bounding before giving up. Defaults to 20.
+
+    Returns:
+        Distance matrix, `num` closest points.
+    """
     dirs = points - ref
-    zero = ref - ref
+    zero = np.zeros(ref.shape)
     
     # TODO: Use some tree data structure, r-tree, etc.
     dist = np.linalg.norm(dirs, axis=1)
@@ -290,21 +302,26 @@ def bounding(points, ref, num=8):
         # Add closest points one by one until enclosed.
         k = 1
         hull = Delaunay(dirs[closest[: num + k]])
+        
         while (simp := hull.find_simplex(zero)) == -1:  # not bounded
             hull = Delaunay(dirs[closest[: num + k]])
             # hull.add_points(dirs[np.newaxis, closest[idx], :])  # TODO: Need to deal with non-uniqueness.
             k += 1
-
-        # Add simplex vertices, then next closest points.
-        important = closest[hull.simplices[simp]]
-        bounding = np.zeros(num, dtype=int)
-        bounding[: important.size] = important
-        k = 0
-        for i in range(important.size, num):
-            while closest[k] in important:
+            if k > lim:  # Cannot bound, give up return num nearest point.
+                bounding = closest[:num]
+                break
+        
+        else:
+            # Add simplex vertices, then next closest points.
+            important = closest[hull.simplices[simp]]
+            bounding = np.zeros(num, dtype=int)
+            bounding[:important.size] = important
+            k = 0
+            for i in range(important.size, num):
+                while closest[k] in important:
+                    k += 1
+                bounding[i] = closest[k]
                 k += 1
-            bounding[i] = closest[k]
-            k += 1
 
     else:
         bounding = closest[:num]
