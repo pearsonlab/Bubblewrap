@@ -20,6 +20,7 @@ class Mesh:
         self.d = dim  # dimension of the space
         self.spr = 0.5  # spring constant in potential
         self.step = 5e-1
+        self.seed = 42
 
         # coordinates for each mesh point
         self.coords = np.zeros((self.N, self.d), dtype="float32")  
@@ -75,7 +76,7 @@ class Mesh:
 
         # TODO: decide on initialization for vectors; zero seems less good
         # Currently using random directions, length 1 (very small compared to mesh size atm)
-        self.vectors = np.random.random((self.N, self.d)) - 0.5
+        self.vectors = np.random.default_rng(self.seed).random((self.N, self.d)) - 0.5
         scalev = np.linalg.norm(self.vectors, axis=1) 
         self.vectors = (self.vectors.T / scalev).T * scale
 
@@ -262,7 +263,6 @@ if __name__ == "__main__":
     from scipy.integrate import solve_ivp
 
     # Define parameters
-    np.random.seed(42)
 
     T = 1000
     dt = 0.1
