@@ -5,6 +5,7 @@ import networkx as nx
 import numpy as np
 from networkx.drawing.layout import spring_layout
 
+import field.mesh_jax as mj
 from field.utils import bounding, center_mass, dumb_bounding
 
 np.set_printoptions(precision=3)
@@ -140,6 +141,18 @@ class Mesh:
         # self.pred = weights.dot(self.vectors[self.bounding])/np.sum(weights)
         # print('------new min value', np.sum(np.abs(V-self.obs.vect)**2))
 
+        self.step /= 1.001
+
+    def jax_grad(self):
+        args = [self.coords[self.bounding], self.vectors[self.bounding], self.obs.mid, self.obs.vect]
+                
+        Δ = grad(mj.loss)(*args)
+        self.coords[self.bounding] -= Δ * self.step
+
+        args[2] = self.obs.curr
+        Δ_vec = grad(mj.loss, argnums=1)(*args)
+        self.vectors[self.bounding] -= Δ_vec * self.step
+        
         self.step /= 1.001
 
     def evaluate(self):
@@ -314,7 +327,8 @@ if __name__ == "__main__":
             # axs[1].quiver(mesh.obs.mid[0], mesh.obs.mid[1], mesh.pred[0], mesh.pred[1], color='g')
             
             # spatial/vector gradient updates
-            mesh.grad_pred()
+            # mesh.grad_pred()
+            mesh.jax_grad()
 
             # bp = mesh.bounding
             # m = np.sum(mesh.coords0 - mesh.coords, axis=1) != 0
