@@ -1,10 +1,10 @@
-from collections import deque
-from itertools import islice
-
+import time
 import networkx as nx
 import numpy as np
 from jax import grad
 from networkx.drawing.layout import spring_layout
+from collections import deque
+from itertools import islice
 
 import field.mesh_jax as mj
 from field.utils import bounding, center_mass, dumb_bounding
@@ -20,7 +20,7 @@ class Mesh:
         self.num = num  # num is number of points per dimension
         self.N = num**dim  # total number of mesh points
         self.d = dim  # dimension of the space
-        self.spr = 0.5  # spring constant in potential
+        self.spr = 1  # spring constant in potential
         self.step = 5e-1
         self.seed = 42
 
@@ -164,6 +164,9 @@ class Mesh:
         # step done after gradient and point movings
         # For each mesh point, get its neighbors and distances
         # TODO: better implementation; can at least group by number of neighbors
+        
+        # self.a = np.mean(self.obs.scale_list)/self.num/2
+        # print('self.a spring length: ', self.a)
 
         for i in np.arange(0, self.N):
             dists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:, None], axis=1)
@@ -174,23 +177,22 @@ class Mesh:
 
                 direc = np.sign(self.coords[i] - self.coords[self.neighbors[i]])
 
-                self.coords[self.neighbors[i]] -= poten.T * direc * self.step*10  # (step_size_here)
+                self.coords[self.neighbors[i]] += poten.T * direc * self.step  # (step_size_here)
             except:
                 breakpoint()    #TODO
 
-            newdists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:, None], axis=1)
-            meand = np.mean(newdists)
-            if not meand or meand > 200:
-                print("nan here")
-                print("mean dist", meand)
-
-                import pdb
-
-                pdb.set_trace()
+            # newdists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:, None], axis=1)
+            # meand = np.mean(newdists)
+            # if not meand: # or meand > 200:
+            #     print("nan here")
+            # #     print("mean dist", meand)
+            #     breakpoint()
 
         # TODO: this needs to change if we're thinking of spatial propagation
 
     def relax_network(self):
+        self.a = np.mean(self.obs.scale_list)/self.num/2
+        # print('self.a spring length: ', self.a)
         init_pos = dict((i,c.tolist()) for i,c in enumerate(self.coords))
         fixed_nodes = self.bounding.tolist()
         new_pos = spring_layout(self.G, k=self.a, pos=init_pos, fixed=fixed_nodes, dim=self.d)
@@ -243,6 +245,8 @@ class Observations:
         self.saved_obs = deque(maxlen=self.M)
         self.mid_list = deque(maxlen=self.M)
         self.vect_list = deque(maxlen=self.M)
+        self.com_list = deque(maxlen=self.M)
+        self.scale_list = deque(maxlen=self.M)
 
     def new_obs(self, coord_new):
         self.curr = coord_new
@@ -256,6 +260,12 @@ class Observations:
         self.saved_obs.append(self.curr)
         self.mid_list.append(self.mid)
         self.vect_list.append(self.vect)
+
+        #TODO: might want to make this over all time, or disallow shrinking?
+        self.obs_com = center_mass(self.saved_obs)
+        self.scale = np.max(np.abs(self.saved_obs - self.obs_com))*2
+        self.com_list.append(self.obs_com)
+        self.scale_list.append(self.scale)
 
     def get_last_obs(self, n=1):
         # get the last n observations, n<=self.M
@@ -308,10 +318,14 @@ if __name__ == "__main__":
     mesh.quiet(data[:M, :])
     mesh.initialize_mesh()
 
+    timers = []
+    init_time = time.time()
+
     for i in np.arange(0, T - M):
         # get new observation
         mesh.observe(data[i+M])
         for j in np.arange(0,internal_reps):
+            timer = time.time()
             # get our prediction for that obs
             # fig, axs = plt.subplots(ncols=3)
 
@@ -366,8 +380,15 @@ if __name__ == "__main__":
             # axs[0].set_xlim(xl)
             # axs[1].set_ylim(yl)
             # axs[1].set_xlim(xl)
+            
+            timers.append(time.time()-timer)
+
+        if i% 100 == 0:
+            print(i, ' data points processed; Time elapsed: ', time.time()-init_time)
 
             # plt.show()
+
+    print('Average cycle time ', np.mean(timers))
 
     # breakpoint()
     # import matplotlib.pylab as plt
@@ -397,7 +418,7 @@ if __name__ == "__main__":
         axs[dim-1].quiver(mesh.coords[:, 0], mesh.coords[:, dim-1], mesh.vectors[:, 0], mesh.vectors[:, dim-1])
 
     else: # TODO: this is specific to 2d case, could generalize
-        fig, axs = plt.subplots(ncols=2)
+        fig, axs = plt.subplots(ncols=3)
 
         bp = mesh.bounding
 
@@ -411,6 +432,11 @@ if __name__ == "__main__":
 
         axs[0].title.set_text('Initial grid (random)')
         axs[1].title.set_text('Final grid, 1 step/new observation')
+
+        plots.plot_color(data[:, 0], data[:, 1], t, axs[2])
+        curr_pos = dict((i,c.tolist()) for i,c in enumerate(mesh.coords))
+        nx.draw(mesh.G, curr_pos, node_size=1)
+
 
     plt.autoscale()
     plt.show()
