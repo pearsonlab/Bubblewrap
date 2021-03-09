@@ -424,7 +424,7 @@ if __name__ == "__main__":
         axs[dim-1].quiver(mesh.coords[:, 0], mesh.coords[:, dim-1], mesh.vectors[:, 0], mesh.vectors[:, dim-1])
 
     else: # TODO: this is specific to 2d case, could generalize
-        fig, axs = plt.subplots(ncols=3)
+        fig, axs = plt.subplots(ncols=3, figsize=(15, 5), dpi=300)
 
         bp = mesh.bounding
 
