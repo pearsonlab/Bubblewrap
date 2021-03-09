@@ -23,13 +23,16 @@ class Mesh:
         self.spr = 1  # spring constant in potential
         self.step = 5e-1
         self.seed = 42
+        self.max_neighbor = 8
 
         # coordinates for each mesh point
         self.coords = np.zeros((self.N, self.d), dtype="float32")  
         # magnitude/direction components on each mesh point
         self.vectors = np.zeros((self.N, self.d), dtype="float32")  
         # (variable number of) neighbors for each mesh point
-        self.neighbors = [None] * self.N  
+        self.neighbors = -1 * np.ones((self.N, self.max_neighbor), dtype=int)
+        self.n_neighbor = -1 * np.ones(self.N, dtype=int)
+        # self.neighbors = [None] * self.N
         # distance matrix from midpoint observation to mesh points
         self.dist = np.zeros(self.N)  
         # equil. pt for spring dist  #TODO: set this as variable
@@ -73,8 +76,10 @@ class Mesh:
         ## TODO: an actually good implementation of this; see manhatten
         for i in np.arange(0, self.N):
             d = np.linalg.norm(self.coords - self.coords[i], axis=1)
-            self.neighbors[i] = np.squeeze(np.argwhere(np.abs(d - scale) < 1e-4))
-            self.G.add_edges_from([(i,n) for n in self.neighbors[i]])
+            nbr = np.squeeze(np.argwhere(np.abs(d - scale) < 1e-4))
+            self.n_neighbor[i] = nbr.size
+            self.neighbors[i, :nbr.size] = nbr
+            self.G.add_edges_from([(i,n) for n in self.neighbors[i, :nbr.size]])
 
         # TODO: decide on initialization for vectors; zero seems less good
         # Currently using random directions, length 1 (very small compared to mesh size atm)
@@ -169,15 +174,16 @@ class Mesh:
         # print('self.a spring length: ', self.a)
 
         for i in np.arange(0, self.N):
-            dists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:, None], axis=1)
+            nbrs = self.neighbors[i, :self.n_neighbor[i]]
+            dists = np.linalg.norm(self.coords[i] - self.coords[nbrs[:, np.newaxis]], axis=1)
             # possibly .T; output (N,d,k)
             try:
                 dij = np.linalg.norm(dists, axis=1)
                 poten = self.spr*(dij - self.a)*(dists.T)/dij
 
-                direc = np.sign(self.coords[i] - self.coords[self.neighbors[i]])
+                direc = np.sign(self.coords[i] - self.coords[nbrs])
 
-                self.coords[self.neighbors[i]] += poten.T * direc * self.step  # (step_size_here)
+                self.coords[nbrs] += poten.T * direc * self.step  # (step_size_here)
             except:
                 breakpoint()    #TODO
 
