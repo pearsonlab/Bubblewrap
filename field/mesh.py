@@ -152,11 +152,11 @@ class Mesh:
     def jax_grad(self):
         args = [self.coords[self.bounding], self.vectors[self.bounding], self.obs.mid, self.obs.vect]
                 
-        Δ = grad(mj.loss)(*args)
+        Δ = grad(mj.prediction_loss)(*args)
         self.coords[self.bounding] -= Δ * self.step
 
         args[2] = self.obs.curr
-        Δ_vec = grad(mj.loss, argnums=1)(*args)
+        Δ_vec = grad(mj.prediction_loss, argnums=1)(*args)
         self.vectors[self.bounding] -= Δ_vec * self.step
         
         self.step /= 1.001
@@ -195,6 +195,11 @@ class Mesh:
             #     breakpoint()
 
         # TODO: this needs to change if we're thinking of spatial propagation
+
+    def jax_relax(self):
+        self.a = np.mean(self.obs.scale_list)/self.num/2
+        Δ = grad(mj.spring_energy)(self.coords, self.neighbors, self.spr, self.a)
+        self.coords -= np.array(Δ) * self.step * 0.01
 
     def relax_network(self):
         self.a = np.mean(self.obs.scale_list)/self.num/2
