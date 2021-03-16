@@ -2,7 +2,7 @@ import jax.numpy as np
 from jax.api import jit
 
 
-@jit
+# @jit
 def predict_vec(coords_curr, vec_curr, coords_obs, p=1):  
     dists = np.linalg.norm(coords_curr - coords_obs, axis=1)
     # print("test", dists)
@@ -10,7 +10,7 @@ def predict_vec(coords_curr, vec_curr, coords_obs, p=1):
     return weights @ vec_curr / np.sum(weights)  # Σwᵢvᵢ / Σwᵢ
 
 
-@jit
+# @jit
 def prediction_loss(coords_curr, vec_curr, coords_obs, vec_obs):
     # Already indexed to bounding points.
     pred = predict_vec(coords_curr, vec_curr, coords_obs)

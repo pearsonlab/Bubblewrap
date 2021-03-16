@@ -1,10 +1,8 @@
 import time
 import networkx as nx
 import numpy as np
-from jax import grad
+from jax import grad, jit
 from networkx.drawing.layout import spring_layout
-from collections import deque
-from itertools import islice
 
 import field.mesh_jax as mj
 from field.utils import bounding, center_mass, dumb_bounding
@@ -52,6 +50,9 @@ class Mesh:
         # rotation: (alpha*v1 + beta*v2) / (alpha+beta)
         self.alpha = 1  # scale current mesh vector
         self.beta = 1  # scale observed vector
+        
+        self.grad_coords = jit(grad(mj.prediction_loss))
+        self.grad_vectors = jit(grad(mj.prediction_loss, argnums=1))
 
     def initialize_mesh(self):
         # sets coords and neighbors
@@ -86,6 +87,11 @@ class Mesh:
         self.vectors = np.random.default_rng(self.seed).random((self.N, self.d)) - 0.5
         scalev = np.linalg.norm(self.vectors, axis=1) 
         self.vectors = (self.vectors.T / scalev).T * scale
+        
+        # Transfer arrays to JAX.
+        self.neighbors = jnp.array(self.neighbors)
+        self.coords = jnp.array(self.coords)
+        self.vectors = jnp.array(self.vectors)
 
         # for later ease of comparison
         self.coords0 = self.coords.copy()
@@ -150,14 +156,11 @@ class Mesh:
         self.step /= 1.001
 
     def jax_grad(self):
-        args = [self.coords[self.bounding], self.vectors[self.bounding], self.obs.mid, self.obs.vect]
-                
-        Δ = grad(mj.prediction_loss)(*args)
-        self.coords[self.bounding] -= Δ * self.step
+        args = [self.coords, self.vectors, self.obs.mid, self.obs.vect]
+        self.coords -= self.grad_coords(*args) * self.step
 
         args[2] = self.obs.curr
-        Δ_vec = grad(mj.prediction_loss, argnums=1)(*args)
-        self.vectors[self.bounding] -= Δ_vec * self.step
+        self.vectors -= self.grad_vectors(*args) * self.step
         
         self.step /= 1.001
 
