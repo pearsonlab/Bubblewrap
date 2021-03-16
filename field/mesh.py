@@ -343,7 +343,7 @@ if __name__ == "__main__":
             # get our prediction for that obs
             # fig, axs = plt.subplots(ncols=3)
 
-            mesh.predict()
+            # mesh.predict()
 
             # bp = mesh.bounding
             # plots.plot_color(data[:i+M+1, 0], data[:i+M+1, 1], t[:i+M+1], axs[0])
