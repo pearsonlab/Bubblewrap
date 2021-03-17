@@ -1,8 +1,11 @@
 import time
 import networkx as nx
 import numpy as np
+import jax.numpy as jnp
 from jax import grad, jit
 from networkx.drawing.layout import spring_layout
+from collections import deque
+from itertools import islice
 
 import field.mesh_jax as mj
 from field.utils import bounding, center_mass, dumb_bounding
@@ -14,14 +17,14 @@ np.set_printoptions(suppress=True)
 ## All using linear interpolation in places; could generalize later
 ## Terminology: mesh points have fixed neighbors, observation points have bounding points
 class Mesh:
-    def __init__(self, num, dim=3, M=10, **kwargs):
+    def __init__(self, num, dim=3, M=10, spr=1, step=5e-1, seed=42, neighb=8, **kwargs):
         self.num = num  # num is number of points per dimension
         self.N = num**dim  # total number of mesh points
         self.d = dim  # dimension of the space
-        self.spr = 1  # spring constant in potential
-        self.step = 5e-1
-        self.seed = 42
-        self.max_neighbor = 8
+        self.spr = spr  # spring constant in potential
+        self.step = step
+        self.seed = seed
+        self.max_neighbor = neighb
 
         # coordinates for each mesh point
         self.coords = np.zeros((self.N, self.d), dtype="float32")  
@@ -34,7 +37,7 @@ class Mesh:
         # distance matrix from midpoint observation to mesh points
         self.dist = np.zeros(self.N)  
         # equil. pt for spring dist  #TODO: set this as variable
-        self.a = 1  # +np.zeros(self.d)                 
+        self.a = 1  # +np.zeros(self.d)           
 
         self.G = nx.Graph()
         self.G.add_nodes_from(np.arange(0,self.N))
@@ -69,6 +72,7 @@ class Mesh:
 
         self.coords -= com
         scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2 / self.num
+        scale *= 10
         self.coords *= scale
         self.coords += obs_com
         self.a *= scale
@@ -101,28 +105,6 @@ class Mesh:
         # update observation history
         self.obs.new_obs(coord_new)
         
-        ## TODO: update self.a based on spread of all obs; add spread to obs class
-
-    def predict(self, p=1):
-        # given new observed vector and its neighbor, what's our pred for that point
-        # p is power for inverse dist weighting, higher for smoother interp
-        # TODO: sanity check for blow-ups here, though springs should prevent it
-        
-        # find new bounding points and their distances to the observed midpoint
-        self.dist, self.bounding = bounding(self.coords, self.obs.mid, num=2**self.d)
-        
-        dists = self.dist[self.bounding]
-
-        if np.any(dists == 0):  # TODO: use min dist not zero, set param elsewhere
-            # we have a prediction at this point already, no need to interp
-            # bounding is sorted so it's the first one
-            self.pred = self.vectors[self.bounding[0]]
-            # TODO: check no movement of this one from spatial update
-
-        weights = 1 / (dists**p)
-        self.weights = weights
-        self.pred = weights.dot(self.vectors[self.bounding]) / np.sum(weights)
-
     def grad_pred(self):
         # NOTE: assuming p=1 here
         # take gradient of prediction wrt distance
@@ -157,16 +139,12 @@ class Mesh:
 
     def jax_grad(self):
         args = [self.coords, self.vectors, self.obs.mid, self.obs.vect]
-        self.coords -= self.grad_coords(*args) * self.step
+        self.coords -= self.grad_coords(*args) * self.step #* 50
 
         args[2] = self.obs.curr
         self.vectors -= self.grad_vectors(*args) * self.step
         
         self.step /= 1.001
-
-    def evaluate(self):
-        # for all observations in memory
-        pass
 
     def relax(self):
         # step done after gradient and point movings
@@ -200,9 +178,10 @@ class Mesh:
         # TODO: this needs to change if we're thinking of spatial propagation
 
     def jax_relax(self):
-        self.a = np.mean(self.obs.scale_list)/self.num/2
+        self.a = np.mean(self.obs.scale_list)/self.num
+        # if new_a > self.a: self.a=new_a
         Δ = grad(mj.spring_energy)(self.coords, self.neighbors, self.spr, self.a)
-        self.coords -= np.array(Δ) * self.step * 0.01
+        self.coords -= np.array(Δ) * self.step * 0.1
 
     def relax_network(self):
         self.a = np.mean(self.obs.scale_list)/self.num/2
@@ -211,29 +190,6 @@ class Mesh:
         fixed_nodes = self.bounding.tolist()
         new_pos = spring_layout(self.G, k=self.a, pos=init_pos, fixed=fixed_nodes, dim=self.d)
         self.coords = np.array([p for p in new_pos.values()], dtype="float32")
-
-    def rotate(self, scaling="global"):
-        if scaling == "global":
-            # apply same rotational scaling to all points
-            self.vectors = (self.alpha*self.vectors + self.beta*self.obs.vect)/(self.alpha + self.beta)
-
-        elif scaling == "dist":
-            # apply rotation scaled by distance to observed midpoint
-            norm = (self.alpha + self.beta) * self.dist  # CHECK dimension here
-            self.vectors = (self.alpha*self.dist @ self.vectors + self.beta*self.dist @ self.obs.vect)/norm
-
-    # def shift_mesh(self):
-    #     # for initialization after mesh.. redo order sometime
-    #     com = center_mass(self.coords)
-    #     self.coords -= com
-
-    #     # for later ease of comparison
-    #     self.coords0 = self.coords.copy()
-
-    def grad_step(self):
-        # compute gradient and take a step in that direction
-        # |obs - pred|^2 + k|d_ij - a|^2
-        pass
 
     def quiet(self, data):
         # add data to observations as initial set
@@ -292,165 +248,3 @@ class Observations:
         self.saved_obs.rotate(n)
         return last
 
-
-if __name__ == "__main__":
-
-    import matplotlib.pylab as plt
-    from datagen import plots
-    from datagen.models import lorenz, vanderpol
-    from scipy.integrate import solve_ivp
-
-    # Define parameters
-
-    T = 1000
-    dt = 0.1
-    M = 50
-    num = 10
-    internal_reps = 3
-
-    ## Generate some data; shape (T,dim)
-    # 3D lorenz system
-    # x0, y0, z0 = (0.1, 0.1, 0.1)
-    # dim = 3
-    # sln = solve_ivp(lorenz, (0, T), (x0, y0, z0), args=(), dense_output=True, rtol=1e-6)
-
-    # 2d vdp oscillator
-    x0, y0 = (0.1, 0.1)
-    dim = 2
-    sln = solve_ivp(vanderpol, (0, T), (x0, y0), args=(), dense_output=True, rtol=1e-6)
-    
-    t = np.linspace(0, dt*T, T)
-    data = sln.sol(t).T * 100 #scale makes for easier human readability imo
-    
-    ## Plotting during mesh refinement
-    # fig, axs = plt.subplots(ncols=2)
-
-
-    # Initialize mesh [around data]
-    mesh = Mesh(num, dim=dim, M=M)
-    # Give first few obs without doing anything
-    mesh.quiet(data[:M, :])
-    mesh.initialize_mesh()
-
-    timers = []
-    init_time = time.time()
-
-    for i in np.arange(0, T - M):
-        # get new observation
-        mesh.observe(data[i+M])
-        for j in np.arange(0,internal_reps):
-            timer = time.time()
-            # get our prediction for that obs
-            # fig, axs = plt.subplots(ncols=3)
-
-            # mesh.predict()
-
-            # bp = mesh.bounding
-            # plots.plot_color(data[:i+M+1, 0], data[:i+M+1, 1], t[:i+M+1], axs[0])
-            # axs[0].quiver(mesh.coords[:, 0], mesh.coords[:, 1], mesh.vectors[:, 0], mesh.vectors[:, 1], color='m')
-            # axs[0].quiver(mesh.coords[bp, 0], mesh.coords[bp, 1], mesh.vectors[bp, 0], mesh.vectors[bp, 1], color='k')
-            # axs[0].quiver(mesh.obs.mid[0], mesh.obs.mid[1], mesh.obs.vect[0], mesh.obs.vect[1], color='r')
-            # axs[0].quiver(mesh.obs.mid[0], mesh.obs.mid[1], mesh.pred[0], mesh.pred[1], color='g')
-
-            # axs[1].quiver(mesh.coords[bp, 0], mesh.coords[bp, 1], mesh.vectors[bp, 0], mesh.vectors[bp, 1], color='k')
-            # axs[1].quiver(mesh.obs.mid[0], mesh.obs.mid[1], mesh.pred[0], mesh.pred[1], color='g')
-            
-            # spatial/vector gradient updates
-            # mesh.grad_pred()
-            mesh.jax_grad()
-
-            # bp = mesh.bounding
-            # m = np.sum(mesh.coords0 - mesh.coords, axis=1) != 0
-            # v = np.sum(mesh.vectors0 - mesh.vectors, axis=1) != 0
-
-            # # breakpoint()
-            # plots.plot_color(data[:i+M+1, 0], data[:i+M+1, 1], t[:i+M+1], axs[1])
-            # axs[1].quiver(mesh.obs.mid[0], mesh.obs.mid[1], mesh.obs.vect[0], mesh.obs.vect[1], color='r')
-            # axs[1].quiver(mesh.coords[:, 0], mesh.coords[:, 1], mesh.vectors[:, 0], mesh.vectors[:, 1], color='m')
-            # axs[1].quiver(mesh.coords[bp, 0], mesh.coords[bp, 1], mesh.vectors[bp, 0], mesh.vectors[bp, 1], color='gray')
-            # axs[1].quiver(mesh.obs.mid[0], mesh.obs.mid[1], mesh.pred[0], mesh.pred[1], color='lime')
-
-            # axs[2].quiver(mesh.coords[bp, 0], mesh.coords[bp, 1], mesh.vectors[bp, 0], mesh.vectors[bp, 1], color='g')
-            
-
-            # adjust vectors of bounding points
-            # mesh.grad_vec()
-            # spring relaxation gradient update
-            mesh.relax_network()
-
-            # m = np.sum(mesh.coords0 - mesh.coords, axis=1) != 0
-            # v = np.sum(mesh.vectors0 - mesh.vectors, axis=1) != 0
-
-            # # breakpoint()
-            # # axs[2].quiver(mesh.coords[m, 0], mesh.coords[m, 1], mesh.vectors[m, 0], mesh.vectors[m, 1], color='m')
-            # axs[2].quiver(mesh.coords[:, 0], mesh.coords[:, 1], mesh.vectors[:, 0], mesh.vectors[:, 1], color='m')
-            # plots.plot_color(data[:i+M+1, 0], data[:i+M+1, 1], t[:i+M+1], axs[2])
-            # axs[2].quiver(mesh.coords[bp, 0], mesh.coords[bp, 1], mesh.vectors[bp, 0], mesh.vectors[bp, 1], color='b')
-            # axs[2].quiver(mesh.obs.mid[0], mesh.obs.mid[1], mesh.obs.vect[0], mesh.obs.vect[1], color='r')
-            
-            # yl = axs[2].get_ylim()
-            # xl = axs[2].get_xlim()
-            # axs[0].set_ylim(yl)
-            # axs[0].set_xlim(xl)
-            # axs[1].set_ylim(yl)
-            # axs[1].set_xlim(xl)
-            
-            timers.append(time.time()-timer)
-
-        if i% 100 == 0:
-            print(i, ' data points processed; Time elapsed: ', time.time()-init_time)
-
-            # plt.show()
-
-    print('Average cycle time ', np.mean(timers))
-
-    # breakpoint()
-    # import matplotlib.pylab as plt
-
-    # mask not moved points
-    # m = np.sum(mesh.coords0 - mesh.coords, axis=1) == 0
-    # mesh.vectors[m] = np.zeros(dim)
-
-    ###### 3d plot
-    # fig = plt.figure()
-    # ax = fig.gca(projection='3d')
-
-    # ax.quiver(mesh.coords[:,0], mesh.coords[:,1], mesh.coords[:,2], mesh.vectors[:,0],mesh.vectors[:,1], mesh.vectors[:,2])
-    # cmap = plt.cm.plasma
-    # for i in range(0,T):
-    #     ax.scatter(data[i,0], data[i,1], data[i,2], color=cmap(i/T))
-
-    ###### 2d plots
-    # from datagen import plots
-
-    if dim>2:
-        fig, axs = plt.subplots(ncols=dim)
-        for i in np.arange(dim-1):
-            plots.plot_color(data[:, i], data[:, i+1], t, axs[i])
-            axs[i].quiver(mesh.coords[:, i], mesh.coords[:, i+1], mesh.vectors[:, i], mesh.vectors[:, i+1])
-        plots.plot_color(data[:, 0], data[:, dim-1], t, axs[dim-1])
-        axs[dim-1].quiver(mesh.coords[:, 0], mesh.coords[:, dim-1], mesh.vectors[:, 0], mesh.vectors[:, dim-1])
-
-    else: # TODO: this is specific to 2d case, could generalize
-        fig, axs = plt.subplots(ncols=3, figsize=(15, 5), dpi=300)
-
-        bp = mesh.bounding
-
-        plots.plot_color(data[:, 0], data[:, 1], t, axs[0])
-        axs[0].quiver(mesh.coords0[:, 0], mesh.coords0[:, 1], mesh.vectors0[:, 0], mesh.vectors0[:, 1])
-        plots.plot_color(data[:, 0], data[:, 1], t, axs[1])
-        axs[1].quiver(mesh.coords[:, 0], mesh.coords[:, 1], mesh.vectors[:, 0], mesh.vectors[:, 1], color='k')
-        # mid = np.asarray(mesh.obs.mid_list)
-        # vect = np.asarray(mesh.obs.vect_list)
-        # axs[1].quiver(mid[:, 0], mid[:, 1], vect[:, 0], vect[:, 1])
-
-        axs[0].title.set_text('Initial grid (random)')
-        axs[1].title.set_text('Final grid, 1 step/new observation')
-
-        plots.plot_color(data[:, 0], data[:, 1], t, axs[2])
-        curr_pos = dict((i,c.tolist()) for i,c in enumerate(mesh.coords))
-        nx.draw(mesh.G, curr_pos, node_size=1)
-
-
-    plt.autoscale()
-    plt.show()
