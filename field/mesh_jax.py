@@ -3,10 +3,15 @@ from jax.api import jit
 
 
 # @jit
-def predict_vec(coords_curr, vec_curr, coords_obs, p=1):  
-    dists = np.linalg.norm(coords_curr - coords_obs, axis=1)
-    weights = 1 / (dists**p)
-    return weights @ vec_curr / np.sum(weights)  # Σwᵢvᵢ / Σwᵢ
+def predict_vec(coords_curr, vec_curr, coords_obs, p=2): 
+    summed = 0
+    decay = 1
+    for _,h in enumerate(coords_obs):
+        dists = np.linalg.norm(coords_curr - h, axis=1)
+        weights = 1 / (dists**p)
+        summed += (weights @ vec_curr / np.sum(weights))/decay  # Σwᵢvᵢ / Σwᵢ
+        decay /= 1.01
+    return summed
 
 
 # @jit

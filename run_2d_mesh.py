@@ -15,7 +15,7 @@ from scipy.integrate import solve_ivp
 ## Define parameters
 
 # Datagen
-T = 200
+T = 500
 dt = 0.1
 M = 50
 
@@ -25,12 +25,12 @@ spr = 1
 max_neighb = 8
 
 # Optimization
-step = 1e-1
+step = 1e-6
 seed = 42
-internal_reps = 3
+internal_reps = 10
 
 # Visualization
-make_movie = False
+make_movie = True
 
 ## Generate data from 2d vdp oscillator
 x0, y0 = (0.1, 0.1)
@@ -47,7 +47,6 @@ if make_movie:
     hold_duration = 10
     total_duration = sweep_duration + hold_duration
     fps = 40
-    count = 9999
 
     # setup animation writer
     import matplotlib.animation
@@ -162,7 +161,7 @@ bp = mesh.bounding
 
 plots.plot_color(data[:, 0], data[:, 1], t, axs[0])
 axs[0].quiver(mesh.coords0[:, 0], mesh.coords0[:, 1], mesh.vectors0[:, 0], mesh.vectors0[:, 1])
-plots.plot_color(data[:, 0], data[:, 1], t, axs[1])
+# plots.plot_color(data[:, 0], data[:, 1], t, axs[1])
 axs[1].quiver(mesh.coords[:, 0], mesh.coords[:, 1], mesh.vectors[:, 0], mesh.vectors[:, 1], color='k')
 # mid = np.asarray(mesh.obs.mid_list)
 # vect = np.asarray(mesh.obs.vect_list)

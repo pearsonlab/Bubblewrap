@@ -90,7 +90,7 @@ class Mesh:
         # Currently using random directions, length 1 (very small compared to mesh size atm)
         self.vectors = np.random.default_rng(self.seed).random((self.N, self.d)) - 0.5
         scalev = np.linalg.norm(self.vectors, axis=1) 
-        self.vectors = (self.vectors.T / scalev).T * scale
+        self.vectors = (self.vectors.T / scalev).T * scale / 10
         
         # Transfer arrays to JAX.
         self.neighbors = jnp.array(self.neighbors)
@@ -105,83 +105,20 @@ class Mesh:
         # update observation history
         self.obs.new_obs(coord_new)
         
-    def grad_pred(self):
-        # NOTE: assuming p=1 here
-        # take gradient of prediction wrt distance
-        V = self.pred  # if self.pred has dist==0 then..?
-        Z = np.sum(self.weights)
-
-        # need to restrict to active bounding points
-        dist = self.dist[self.bounding]
-        dwdx = (self.obs.mid - self.coords[self.bounding]) / dist[:, None]**3
-
-        grad = 2*np.abs(V - self.obs.vect) * dwdx * (self.vectors[self.bounding] - V) / Z
-
-        ####
-        # print('------original min value', np.sum(np.abs(V-self.obs.vect)**2))
-
-        # TODO: need to also deal with boundary case when prediction is on a mesh point
-        self.coords[self.bounding] -= grad * self.step  # (step size)
-
-        dists = np.linalg.norm(self.coords - self.obs.curr, axis=1)  #new distances
-        dist = dists[self.bounding]
-        grad_vec = 2*(V - self.obs.vect) / (Z*dist[:, None])
-
-        self.vectors[self.bounding] -= grad_vec * self.step
-
-        # ###########
-        
-        # weights = 1/(dist)      ## new prediciton
-        # self.pred = weights.dot(self.vectors[self.bounding])/np.sum(weights)
-        # print('------new min value', np.sum(np.abs(V-self.obs.vect)**2))
-
-        self.step /= 1.001
-
     def jax_grad(self):
-        args = [self.coords, self.vectors, self.obs.mid, self.obs.vect]
+        args = [self.coords, self.vectors, list(self.obs.mid_list), self.obs.vect]
         self.coords -= self.grad_coords(*args) * self.step #* 50
 
         args[2] = self.obs.curr
-        self.vectors -= self.grad_vectors(*args) * self.step
+        self.vectors -= self.grad_vectors(*args) * self.step #* 1.5
         
         self.step /= 1.001
 
-    def relax(self):
-        # step done after gradient and point movings
-        # For each mesh point, get its neighbors and distances
-        # TODO: better implementation; can at least group by number of neighbors
-        
-        # self.a = np.mean(self.obs.scale_list)/self.num/2
-        # print('self.a spring length: ', self.a)
-
-        for i in np.arange(0, self.N):
-            nbrs = self.neighbors[i, :self.n_neighbor[i]]
-            dists = np.linalg.norm(self.coords[i] - self.coords[nbrs[:, np.newaxis]], axis=1)
-            # possibly .T; output (N,d,k)
-            try:
-                dij = np.linalg.norm(dists, axis=1)
-                poten = self.spr*(dij - self.a)*(dists.T)/dij
-
-                direc = np.sign(self.coords[i] - self.coords[nbrs])
-
-                self.coords[nbrs] += poten.T * direc * self.step  # (step_size_here)
-            except:
-                breakpoint()    #TODO
-
-            # newdists = np.linalg.norm(self.coords[i] - self.coords[self.neighbors[i]][:, None], axis=1)
-            # meand = np.mean(newdists)
-            # if not meand: # or meand > 200:
-            #     print("nan here")
-            # #     print("mean dist", meand)
-            #     breakpoint()
-
-        # TODO: this needs to change if we're thinking of spatial propagation
-
     def jax_relax(self):
-        self.a = np.mean(self.obs.scale_list)/self.num
+        self.a = np.mean(self.obs.scale_list)/self.num * 1.5
         # if new_a > self.a: self.a=new_a
         Δ = grad(mj.spring_energy)(self.coords, self.neighbors, self.spr, self.a)
-        self.coords -= np.array(Δ) * self.step * 0.1
+        self.coords -= np.array(Δ) * self.step * 0.05
 
     def relax_network(self):
         self.a = np.mean(self.obs.scale_list)/self.num/2
