@@ -1,4 +1,14 @@
 #%%
+"""
+An implementation of `Interpretable Nonlinear Dynamic Modeling of Neural Trajectories`
+Yuan Zhao, Il Memming Park, NIPS 2016
+
+Equations are exact matches to those in the paper.
+Generate data from a van der pol oscillator, fit with MSE, and draw vector field.
+Takes ~5 ms to run per step on a 4 GHz Coffee Lake CPU.
+
+"""
+    
 from jax.config import config
 
 config.update("jax_log_compiles", 1)
