@@ -15,6 +15,13 @@ def normalize(func):
 
     return wrapper
 
+@normalize
+def linear(x, c, σ):
+    res = list()
+    for i in range(σ.size):
+        res.append(norm(x - c[i], axis=1)**2)
+    res = np.vstack(res).T
+    return np.max(res, axis=1, keepdims=True) - res
 
 @normalize
 def rbf(x, c, σ):
@@ -40,11 +47,3 @@ def matern52(x, c, σ):
         u = sqrt(5) * norm(x - c[i], axis=1)
         res.append((1 + u/σ[i] + u**2 / (3 * σ[i]**2)) * exp(-u/σ[i]))
     return np.vstack(res).T
-
-
-# def matern32(x, c, σ, ϵ=1e-7):
-#     res = list()
-#     for i in range(σ.size):
-#         res.append(np.exp(-np.linalg.norm(x - c[i], axis=1) ** 2 / (2 * σ[i] ** 2)))
-#     res = np.vstack(res).T
-#     return res / (ϵ + np.sum(res, axis=1, keepdims=True))
