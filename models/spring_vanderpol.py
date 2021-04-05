@@ -1,5 +1,4 @@
 #%%
-
 from functools import partial
 from typing import Callable
 
@@ -9,13 +8,11 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as onp
 import seaborn as sns
-from datagen.plots import plot3d_color, plot_color
 from jax import jit
 from jax.api import value_and_grad
 from jax.config import config
 from jax.experimental.optimizers import adam
 from jax.interpreters.xla import DeviceArray
-from networkx.generators.lattice import grid_2d_graph
 from scipy.integrate import solve_ivp
 
 from models import kernels
@@ -28,6 +25,7 @@ sns.set()
 config.update("jax_log_compiles", 1)
 config.update("jax_debug_nans", True)
 # config.update('jax_disable_jit', True)
+
 
 def gen_grid(m=4, n=4):
     G = nx.grid_2d_graph(m, n)
@@ -43,21 +41,25 @@ def gen_grid(m=4, n=4):
 
 
 class Spring(RBFN):
-    def __init__(self, ker: Callable, params, optimizer: tuple[Callable, ...], nb: DeviceArray) -> None:
+    def __init__(self, ker: Callable, params, optimizer: tuple[Callable, ...],
+        *, params_spr: dict[str, float], nb: DeviceArray
+    ):
         super().__init__(ker, params, optimizer)
+        assert nb.shape[0] == self.params["σ"].shape[0]
         self.nb = nb
-        self._mse_vgrad = jit(value_and_grad(self._mse, argnums=2), static_argnums=0)
+        
+        assert {"k", "l0"} <= params_spr.keys()
+        self.p_spr = params_spr
+
+        self._obj = partial(
+            jit(value_and_grad(self._mse_spring, argnums=2), static_argnums=0),
+            k=self.p_spr["k"],
+            l0=self.p_spr["l0"],
+        )
 
     @staticmethod
-    @partial(jit, static_argnums=0)
-    def _g(kern, x, W, τ, c, σ, **kwargs):
-        return kern(x, c, σ) @ W - np.exp(-(τ**2)) * x  # (4)
-
-    @staticmethod
-    def _mse(kern: Callable, x: DeviceArray, p: dict[str, DeviceArray]):
-        return np.mean(
-            np.square(RBFN._g(kern, x[:-1], p["W"], p["τ"], p["c"], p["σ"]) + x[:-1] - x[1:])
-        ) + 0.005 * Spring.spring_energy(p["c"], nb, l0=1.5)# l0=p['l0'])#l0=0.6)  
+    def _mse_spring(kern: Callable, x: DeviceArray, p: dict[str, DeviceArray], **kwargs):
+        return Spring._mse(kern, x, p) + Spring.spring_energy(p["c"], nb, **kwargs)
 
     @staticmethod
     def spring_energy(coords, neighbors, k=1.0, l0=1.0):
@@ -74,7 +76,7 @@ t, y_true = gen(vanderpol, x0=(0.1, 0.1))
 
 m, n = 5, 5
 points, nb, n_nb = gen_grid(m, n)
-points = (points - np.mean(points, axis=0)) * 1.
+points = (points - np.mean(points, axis=0)) * 1.0
 
 key = jax.random.PRNGKey(4)
 n_rbf = m * n
@@ -83,11 +85,13 @@ params = {
     "τ": (τ := 3.0),
     "c": (c := points),
     "σ": (σ := np.ones(n_rbf) * 2),
-    "l0": 1.
-    # "k": (k := 0.01)
+}
+
+params_spr = {
+    "k": 0.005,
+    "l0": 1.,
 }
 #%%
-
 noise = jax.random.normal(key, shape=y_true.shape) * 0.1
 y = y_true + noise
 u = y[1100:2400:5]
@@ -103,7 +107,7 @@ def train(net, x):
     return net
 
 
-net = Spring(kernels.linear, params, adam(2e-2), nb=nb)
+net = Spring(kernels.linear, params, adam(2e-2), params_spr=params_spr, nb=nb)
 train(net, y)
 
 

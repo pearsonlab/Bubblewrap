@@ -31,7 +31,7 @@ class RBFN:
         self.opt_state = self.init_params(params)
 
         self.ker = ker
-        self._mse_vgrad = jit(value_and_grad(self._mse, argnums=2), static_argnums=0)
+        self._obj = self._mse_vgrad = jit(value_and_grad(self._mse, argnums=2), static_argnums=0)
         self.i = 0
 
     @property
@@ -39,24 +39,25 @@ class RBFN:
         return self.get_params(self.opt_state)
 
     def g(self, x):
-        return self._g(self.ker, x, **self.params)
+        return self._g(self.ker, x, self.params)
+    
+    def obj(self, x):
+        return self._obj(self.ker, x, self.params)
 
     def step(self, x, loop=3):
         for _ in range(loop):
-            value, grads = self._mse_vgrad(self.ker, x, self.params)
+            value, grads = self._obj(self.ker, x, self.params)
             self.opt_state = self.opt_update(self.i, grads, self.opt_state)
         self.i += 1
         return value
 
     @staticmethod
     @partial(jit, static_argnums=0)
-    def _g(kern, x, W, τ, c, σ):
-        return kern(x, c, σ) @ W - np.exp(-(τ ** 2)) * x  # (4)
+    def _g(ker, x, p):
+        W, τ, c, σ = p["W"], p["τ"], p["c"], p["σ"]
+        return ker(x, c, σ) @ W - np.exp(-(τ ** 2)) * x  # (4)
 
     @staticmethod
-    def _mse(kern: Callable, x: DeviceArray, p: dict[str, DeviceArray]):
-        return np.mean(np.square(RBFN._g(kern, x[:-1], p["W"], p["τ"], p["c"], p["σ"]) + x[:-1] - x[1:]))
-
-# %%
-
-# %%
+    def _mse(ker: Callable, x: DeviceArray, p: dict[str, DeviceArray]):
+        "||g(x_{t-1}) + x_{t-1} - x_t||²"
+        return np.mean(np.square(RBFN._g(ker, x[:-1], p) + x[:-1] - x[1:]))
