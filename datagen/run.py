@@ -7,7 +7,7 @@ from scipy.integrate import solve_ivp
 from sklearn.decomposition import PCA
 
 from datagen import plots
-from datagen.models import lorenz
+from datagen.diffeq import lorenz
 
 # %%
 

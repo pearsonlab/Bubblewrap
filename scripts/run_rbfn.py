@@ -2,25 +2,24 @@
 from jax.config import config
 
 config.update("jax_log_compiles", 1)
-config.update("jax_debug_nans", True)
+# config.update("jax_debug_nans", True)
 
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datagen.models import vanderpol
+from datagen.diffeq import gen_diffeq, vanderpol
 from jax.experimental.optimizers import adam
 from matplotlib.animation import FuncAnimation
+from models import kernels
+from models.rbfn import RBFN
 from scipy.integrate import solve_ivp
 
-from models import kernels
-from models.diffeq import gen, vanderpol
-from models.rbfn import RBFN
-from models.visualize import draw_vec_bg
+from scripts.visualize import draw_vec_bg
 
 sns.set()
 
-t, y_true = gen(vanderpol, n_points=2500, discard=500)
+t, y_true = gen_diffeq(vanderpol, n_points=2500, discard=500)
 
 key = jax.random.PRNGKey(4)
 n_rbf = 15
@@ -31,7 +30,7 @@ params = {
     "σ": (σ := np.ones(n_rbf) * 2),
 }
 
-noise = jax.random.normal(key, shape=y_true.shape) * 0.
+noise = jax.random.normal(key, shape=y_true.shape) * 0.0
 y = y_true + noise
 
 #%% Online run
@@ -42,14 +41,16 @@ def train(net, x):
             print(i, mse)
     return net
 
+
 def predict(t, x):
     x = x[np.newaxis, :]
     return net.g(x).flatten()
 
+
 u = y[0:2000]  # Actual training data.
 net = RBFN(kernels.linear, params, adam(2e-2))
 train(net, u)
-pred = solve_ivp(predict, (0, 1000), (2.,2.), rtol=1e-6, max_step=1.)
+pred = solve_ivp(predict, (0, 1000), (2.0, 2.0), rtol=1e-6, max_step=1.0)
 
 #%%
 def draw(ax, u, net):
@@ -58,13 +59,12 @@ def draw(ax, u, net):
           - kernel position and their associated vectors (blue dot, thick arrows),
           - training data (green arrow),
     """
-    vec = np.diff(u[:net.t+1], axis=0)
+    vec = np.diff(u[: net.t + 1], axis=0)
     _, im = draw_vec_bg(ax, net, n_points=20, lim=(-4, 4), minlength=0.5, width=0.002, alpha=0.4, headwidth=4)
-    ax.quiver(
-        *u[:net.t].T, *vec.T, angles="xy", scale_units="xy", scale=1.0, alpha=0.5, color="green", label="Train"
-    )
-    ax.plot(*net.params["c"].T, "oC0", markeredgewidth=0.5, ms=1.)
+    ax.quiver(*u[: net.t].T, *vec.T, angles="xy", scale_units="xy", scale=1.0, alpha=0.5, color="green", label="Train")
+    ax.plot(*net.params["c"].T, "oC0", markeredgewidth=0.5, ms=1.0)
     ax.quiver(*net.params["c"].T, *net.params["W"].T, alpha=0.8, width=0.005)
+
 
 fig, ax = plt.subplots(figsize=(10, 4), dpi=300)
 # ax.plot(*pred['y'], '--', alpha=0.7, linewidth=2)  # Draw prediction (dashed line).
@@ -77,6 +77,7 @@ net = RBFN(kernels.linear, params, adam(2e-2))
 
 u = y[::10]
 
+
 def animate(i):
     ax.clear()
     mse = net.step_online(u)
@@ -85,9 +86,10 @@ def animate(i):
     if i % 10 == 0:
         print(i, mse)
 
+
 anim = FuncAnimation(fig, animate, frames=90, blit=False)  # TODO: Make blit version.
 fig.tight_layout()
-anim.save('myAnimation.gif', writer='imagemagick', fps=5)
+anim.save("myAnimation.gif", writer="imagemagick", fps=5)
 
 #%% Kernel Comparison
 kers = {"rbf": kernels.rbf, "matern32": kernels.matern32, "matern52": kernels.matern52}

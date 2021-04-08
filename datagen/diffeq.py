@@ -22,7 +22,7 @@ def vanderpol(t, f, mu=1.):  # 2D
     return x_dot, y_dot
 
 
-def gen(func: Callable, x0=(0.1, 0.1), *,
+def gen_diffeq(func: Callable, x0=(0.1, 0.1), *,
         t_lim=50.0, n_points=4000, discard=0, rtol=1e-6, max_step=1.0, **kwargs):
     """
     When max_step == 1, t_lim == n_points
