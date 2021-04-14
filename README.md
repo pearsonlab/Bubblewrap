@@ -2,11 +2,17 @@
 
 (Private) repository for project to learn and iteratively refine a mesh points that approximates probability flow on low-dimensional neural manifolds.
 
+## Structure
+* datagen: Classes for generating observation data points; mostly from deterministic systems atm.
+* models: Our implementations of others' methods for comparative purposes.
+* field: root folder for our formulation of some kind of mesh/graph/field for modeling low-D trajectories or probabilistic transitions.
+* scripts: Code to put all the pieces together and run a simulation.
+
 
 ## Current Tasks
-- [x] Add noise to data generation
-- [x] Compute bounding points in N-D
-- [ ] Efficient neighboring points computation
+- [ ] 
+- [ ] 
+- [ ] 
 
 
 ## Conventions
