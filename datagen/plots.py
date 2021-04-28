@@ -36,7 +36,7 @@ def plot3d_color(y, t, cmap="viridis", **kwargs):
     return fig, ax
 
 
-def plot_color(x, y, t, ax=None, colorbar=True, cmap="viridis", **kwargs):
+def plot_color(x, y, t, ax=None, colorbar=True, cmap="viridis", alpha=0.9, **kwargs):
     """
     Plot a trajectory `x` and `y` with colors from `t`.
     """
@@ -44,7 +44,7 @@ def plot_color(x, y, t, ax=None, colorbar=True, cmap="viridis", **kwargs):
     segments = np.concatenate([y[:-1], y[1:]], axis=1)
 
     norm = plt.Normalize(t.min(), t.max())
-    lc = LineCollection(segments, cmap=cmap, norm=norm, alpha=0.9, **kwargs)
+    lc = LineCollection(segments, cmap=cmap, norm=norm, alpha=alpha, **kwargs)
     lc.set_array(t)
     lc.set_linewidth(2)
 
