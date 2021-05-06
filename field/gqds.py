@@ -1,41 +1,55 @@
 import numpy as np
+import networkx as nx
 import jax.numpy as jnp
 from math import floor
+import time
 
 from field.mesh import Observations
 from field.utils import center_mass
 
-from jax import jit, grad
+from jax import jit, grad, vmap
 import jax.scipy.stats
 from jax.scipy.stats import multivariate_normal as jmvn
 from scipy.stats import multivariate_normal as mvn
 from jax.scipy.special import logsumexp as lse
 
-from scipy.special import softmax
+import matplotlib.tri as mtri
+from scipy.special import softmax, log_softmax
+from jax import nn
+
 
 epsilon = 1e-10
-np.set_printoptions(precision=3)
+np.set_printoptions(precision=4)
 np.set_printoptions(suppress=True)
+np.seterr(invalid='raise')
+
+# import jax
+# jax.config.update('jax_platform_name', 'cpu')
+# from jax.config import config
+# config.update("jax_debug_nans", True)
 
 
-## Working title: 'Graph quantized dynamical systems' (gqds)
+## Working title: 'Graph quantized dynamical systems' (gqds) --> need to rename to LCB (?)
 
 class GQDS():
-    def __init__(self, num, dim, seed=42, M=10, max_child=10, step=1e-6, lam=1, eps=1e-4, nu=1e-2, sigma_scale=1e6, beta=2, eta=1e-3):
+    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, kappa=1e-2):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
-        self.max_child = max_child
         self.step = step
         self.lam_0 = lam
         self.nu_0 = nu
-        # self.eps = eps
+        self.eps = eps
         self.sigma_scale = sigma_scale
-        self.beta = beta
-        self.eta = eta
+        # self.beta = beta      ## NOTE: beta defined in em ~1/t
+        self.kap = kappa
+        
+        self.printing = False
+        np.random.seed(self.seed)
 
         # observations of the data; M is how many to keep in history
         self.obs = Observations(self.d, M=M)
+        ## TODO: redefine M perhaps
 
         self.alpha = (1/self.N)*np.ones(self.N)
 
@@ -47,19 +61,21 @@ class GQDS():
         self.mu = np.mgrid[sl].reshape((self.d, self.N)).astype("float32").T
 
         com = center_mass(self.mu)
-        obs_com = center_mass(self.obs.saved_obs)
+        if len(self.obs.saved_obs) > 1:
+            obs_com = center_mass(self.obs.saved_obs)
+            self.scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2  / self.d / floor(np.sqrt(self.N))
+        else:
+            ## this section for if we init mesh with no data
+            obs_com = 0
+            self.obs.curr = com
+            self.obs.obs_com = com
+            self.scale = 1
 
         self.mu -= com
-        scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2  / self.d / floor(np.sqrt(self.N))
-        scale *= 14
-        self.mu *= scale
+        self.scale *= 15        ## TODO: make input param
+        self.mu *= self.scale
         self.mu += obs_com
 
-        self.fullSigma = np.zeros((self.N,self.d,self.d), dtype="float32")
-        for n in np.arange(self.N):
-            self.fullSigma[n] = np.diagflat(self.sigma_scale*(1/scale)*np.ones((self.d), dtype="float32"))   
-
-        ### Initialize model parameters (A,En,...)
         prior = (1/self.N)*np.ones(self.N)
 
         self.alpha = self.lam_0 * prior
@@ -67,8 +83,20 @@ class GQDS():
         self.lam = self.lam_0 * prior 
         self.nu = self.nu_0 * prior
 
-        self.n_obs = 0
+        self.n_obs = 0*self.alpha
 
+        self.fullSigma = np.zeros((self.N,self.d,self.d), dtype="float32")
+        self.L = np.zeros((self.N,self.d,self.d))
+        self.L_diag = np.zeros((self.N,self.d))
+        for n in np.arange(self.N):
+            self.fullSigma[n] = np.diagflat(self.sigma_scale*(1/self.scale)*np.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
+            L = np.linalg.cholesky(self.fullSigma[n])
+            self.L[n] = np.linalg.inv(L).T
+            self.L_diag[n] = np.log(np.diag(self.L[n]))        
+        ### NOTE: L is now defined using cholesky of precision matrix, NOT covariance!
+        self.L_lower = np.tril(self.L,-1) #np.zeros((self.N,self.d,self.d)) 
+
+        ### Initialize model parameters (A,En,...)
         self.A = np.ones((self.N,self.N)) - np.eye(self.N)#*0.99999
         self.A /= np.sum(self.A, axis=1)
         self.B = np.zeros((self.N))
@@ -77,20 +105,9 @@ class GQDS():
         self.S1 = np.zeros((self.N,self.d))
         self.S2 = np.zeros((self.N,self.d,self.d))
 
-        self.fullSigma *= prior[:,None,None]
         self.mus_orig = np.zeros((self.N,self.d,self.d))
         for n in np.arange(self.N):
             self.mus_orig[n] = np.outer(self.mu[n], self.mu[n])
-
-        self.L = np.linalg.cholesky(self.fullSigma)
-        self.L_diag = np.zeros((self.N,self.d))
-        for n in np.arange(self.N):
-            self.L_diag[n] = np.log(np.diag(self.L[n]))
-        #np.diagonal(self.L)
-        # self.L = np.tril(L,-1)
-        # breakpoint()
-        self.L_lower = np.tril(self.L,-1) #np.zeros((self.N,self.d,self.d)) 
-        # breakpoint()
 
         self.log_A = np.zeros((self.N,self.N))
 
@@ -105,7 +122,6 @@ class GQDS():
 
         ## Set up gradients
         self.grad_mu = jit(grad(Q_est, argnums=0))
-        # self.grad_sigma = jit(grad(Q_est, argnums=1))
         self.grad_L_lower = jit(grad(Q_est, argnums=1))
         self.grad_L_diag = jit(grad(Q_est, argnums=2))
         self.grad_A = jit(grad(Q_est, argnums=3))
@@ -114,6 +130,7 @@ class GQDS():
         self.A_diff = []
 
         ## for adam gradients
+        ## TODO: rewrite optimally
         self.beta1 = np.float32(0.9)
         self.beta2 = np.float32(0.999)
 
@@ -127,43 +144,55 @@ class GQDS():
         self.v_L_diag = np.zeros_like(self.L_diag)
         self.v_A = np.zeros_like(self.A)
 
+        # self.set_neighbors()
 
+    def set_neighbors(self):
+        self.G = nx.Graph()
+        self.G.add_nodes_from(np.arange(0,self.N))
+        self.neighbors = np.zeros((self.N, self.N))
+
+        triag = mtri.Triangulation(self.mu[:,0], self.mu[:,1])
+        for _,n in enumerate(triag.edges):
+            a, b = n    #single edge b/t 2 points
+            self.neighbors[a, b] = self.kap
+            self.neighbors[b, a] = self.kap
+        self.G.add_edges_from(triag.edges)
+
+        ### Adjust by number of neighbors?
+        # self.neighbors = self.neighbors / (np.sum(self.neighbors, axis=1)[:,np.newaxis])
+        
     def observe(self, x):
         # Get new data point and update observation history
         self.obs.new_obs(x)
 
-        self.last_alpha = self.alpha.copy()
-
     def em_step(self):
         # take step in E and M; after observation
 
-        # print(self.obs.curr)
-        # print(self.mu)
-        print(self.alpha)
+        self.last_alpha = self.alpha.copy()
+        if self.printing:
+            print(self.alpha)
 
-        self.eps = 0.03 #1/(self.t+1)
+        # self.eps = 0.03 #1/(self.t+1)
         self.beta = 1 + 10/(self.t+1)
 
         self.update_B()
         self.update_gamma()
         self.update_alpha()
         self.update_En()
-        # self.update_A()
 
         self.update_S()
-        # self.update_ss()
         self.grad_Q()
 
         self.t += 1
 
     def update_B(self):
         # Compute posterior over graph
+        # timer = time.time()
         for n in np.arange(self.N):
-            self.fullSigma[n] = self.L[n] @ self.L[n].T
-            try:
-                self.B[n] = mvn.logpdf(self.obs.curr, mean=self.mu[n], cov=self.fullSigma[n] + epsilon+np.eye(self.d))
-            except:
-                print('problem in ', n, ' draw for B; passing...')
+            inv = np.linalg.inv(self.L[n])
+            self.fullSigma[n] = inv.T @ inv
+        self.B = multiple_logpdfs(self.obs.curr, self.mu, self.fullSigma)
+        # print('new B ', time.time()-timer)
         
         max_Bind = np.argmax(self.B)
         self.B -= self.B[max_Bind]
@@ -224,22 +253,24 @@ class GQDS():
 
     
     def grad_Q(self):
-        
-        args = [self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.eta, self.En, self.nu, self.n_obs, self.beta, self.mu_orig, self.fullSigma_orig, self.d, self.mus_orig]
 
+        args = [self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.En, self.nu, self.n_obs, self.beta, self.mu_orig, self.fullSigma_orig, self.d, self.mus_orig, self.obs.obs_com]
+
+        # timer = time.time()
         grad_mu = self.grad_mu(*args)
         grad_L = np.array(self.grad_L_lower(*args))
         grad_L_diag = np.array(self.grad_L_diag(*args))
         grad_A = self.grad_A(*args)
-
+        # print('Compute gradients ', time.time()-timer)
         
         if (grad_L_diag > 1e3).any():
             print('Large L_diag gradient')
-            breakpoint()
-
+            # breakpoint()
 
         ## adam
+        # timer = time.time()
         updates = self.run_adam(grad_mu, grad_L, grad_L_diag, grad_A)
+        # print('Compute adam update ', time.time()-timer)
         self.mu -= updates[0] 
         self.L_lower -= updates[1] 
         self.L_diag -= updates[2] 
@@ -249,21 +280,24 @@ class GQDS():
 
         self.A_diff.append(self.A-self.A_orig)
         
-
-        self.L = np.zeros((self.N,self.d,self.d)) #= np.diagonal(np.exp(self.L_diag)) + self.L_lower     #np.array(np.diagonal(self.L_diag))
+        # timer = time.time()
+        self.L = np.zeros((self.N,self.d,self.d)) #= np.diagonal(np.exp(self.L_diag)) + self.L_lower
         for n in np.arange(self.N):
             self.L[n] = np.diag(np.exp(self.L_diag[n])) + self.L_lower[n]
-
+        # print('Reconstruct L ', time.time()-timer)
         
-        Q = -Q_est(*args)
-        print(self.t, Q)
-        self.Q_list.append(Q)
+        # timer = time.time()
+        # Q = -Q_est(*args)
+        # print('Evaulate Q ', time.time()-timer)
+        # print(self.t) #, Q)
+        # self.Q_list.append(Q)
         # print('-------------------------------after gradient')
 
         self.step /= 1.001
 
     def run_adam(self, mu,L,L_diag,A):
         ## inputs are gradients
+        ## TODO: rewrite this
 
         self.m_mu = self.beta1*self.m_mu + (1-self.beta1)*mu
         self.v_mu = self.beta2*self.v_mu + (1-self.beta2)*mu**2
@@ -292,38 +326,69 @@ class GQDS():
         return [update_mu, update_L, update_L_diag, update_A]
 
 
-from jax import nn
-def Q_est(mu, L, L_diag, log_A, lam, S1, S2, eta, En, nu, n_obs, beta, mu_orig, sigma_orig, d, mus_orig):
+def Q_est(mu, L, L_diag, log_A, lam, S1, S2, En, nu, n_obs, beta, mu_orig, sigma_orig, d, mus_orig, com):
 
     N = log_A.shape[0]
     d = mu.shape[1]
-    t = jnp.sum(En)
-    # sig_inv = jnp.linalg.inv(sigma)
-    # chol_inv = jnp.linalg.inv(jnp.linalg.cholesky(sigma))
-    # sig_inv = chol_inv.T @ chol_inv
-    # ld = jnp.linalg.slogdet(sigma)[1]
+    t = 1+jnp.sum(En)
 
-    # el = jnp.tril((jnp.diagonal(jnp.exp(L_diag)+epsilon) + jnp.tril(L,-1)))
-
-    # jnp.diag(L_diag)
-    # el[1,1] = L
+    ## is this even faster?
+    el = vmap(get_L, (0,0))(L_diag,L)
+    sig_inv = vmap(get_sig_inv, 0)(el)
 
     summed = 0
     for j in jnp.arange(N):
-        el = jnp.tril(jnp.diag(jnp.exp(L_diag[j]) + epsilon) + jnp.tril(L[j],-1))
-        # L = jnp.linalg.cholesky(sigma[j])
-        chol_inv = jnp.linalg.inv(el)
-        sig_inv = chol_inv.T @ chol_inv #+ epsilon*jnp.diag(jnp.ones(d))
-        # sig_inv = jnp.linalg.inv(sigma[j])
-        ld = 2 * jnp.sum(L_diag[j])
+
+        ld = -2 * jnp.sum(L_diag[j])
         mus = jnp.outer(mu[j], mu[j])
 
-        summed += (S1[j] + lam[j] * mu_orig[j]).dot(sig_inv).dot(mu[j])
-        summed += (-1/2) * jnp.trace( (sigma_orig[j] + S2[j] + lam[j] * mus_orig[j] + (lam[j] + n_obs[j]) * mus) @ sig_inv )
+        summed += (S1[j] ).dot(sig_inv[j]).dot(mu[j]) 
+        summed += (-1/2) * jnp.trace( (sigma_orig[j] + S2[j] + (n_obs[j]) * mus) @ sig_inv[j] ) 
         summed += (-1/2) * (nu[j] + n_obs[j] + d + 2) * ld
-        summed += jnp.sum((En[j] + beta - 1) * nn.log_softmax(log_A[j])) #(A[:,j] - lse(A[:,j])))
+        summed += jnp.sum((En[j] + beta - 1) * nn.log_softmax(log_A[j])) 
 
-    # last term sum over all elements
-    # summed_last = np.sum( (En + beta - jnp.ones((N,N))) * (jnp.log(A+epsilon)) )
+        summed -= 0.0001*jnp.linalg.norm(mu - com + epsilon)**2
+        
 
-    return -summed/t #- summed_last #+ eta*jnp.sum((jnp.sum(A,axis=1)-jnp.ones(N)))
+    return -summed/t 
+
+def get_L(x, y):
+    return jnp.tril(jnp.diag(jnp.exp(x) + epsilon) + jnp.tril(y,-1))
+
+def get_L_inv(L):
+    return jnp.linalg.inv(L)
+
+def get_sig_inv(L):
+    return L @ L.T
+
+def get_sub_l(L):
+    return L.flatten()/jnp.linalg.norm(L.flatten())
+
+def get_mus(mu):
+    return jnp.outer(mu,mu)
+
+## http://gregorygundersen.com/blog/2020/12/12/group-multivariate-normal-pdf/
+def multiple_logpdfs(x, means, covs):
+    # Thankfully, NumPy broadcasts `eigh`.
+    vals, vecs = np.linalg.eigh(covs)
+
+    # Compute the log determinants across the second axis.
+    logdets    = np.sum(np.log(vals), axis=1)
+
+    # Invert the eigenvalues.
+    valsinvs   = 1./vals
+    
+    # Add a dimension to `valsinvs` so that NumPy broadcasts appropriately.
+    Us         = vecs * np.sqrt(valsinvs)[:, None]
+    devs       = x - means
+
+    # Use `einsum` for matrix-vector multiplications across the first dimension.
+    devUs      = np.einsum('ni,nij->nj', devs, Us)
+
+    # Compute the Mahalanobis distance by squaring each term and summing.
+    mahas      = np.sum(np.square(devUs), axis=1)
+    
+    # Compute and broadcast scalar normalizers.
+    dim        = len(vals[0])
+    log2pi     = np.log(2 * np.pi)
+    return -0.5 * (dim * log2pi + mahas + logdets)

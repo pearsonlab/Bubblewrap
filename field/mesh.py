@@ -214,6 +214,7 @@ class Observations:
         self.last = np.zeros(self.d)
         self.vect = None
         self.mid = None
+        self.obs_com = None
 
         self.saved_obs = deque(maxlen=self.M)
         self.mid_list = deque(maxlen=self.M)
@@ -221,12 +222,16 @@ class Observations:
         self.com_list = deque(maxlen=self.M)
         self.scale_list = deque(maxlen=self.M)
 
+        self.n_obs = 0
+
+
     def new_obs(self, coord_new):
         self.curr = coord_new
         self.vect = self.curr - self.last
         self.mid = self.last + 0.5*self.vect
 
         self.last = coord_new
+        self.n_obs += 1
 
         # if len(self.saved_obs)==self.M:
         #     self.saved_obs.popleft()
@@ -235,7 +240,10 @@ class Observations:
         self.vect_list.append(self.vect)
 
         #TODO: might want to make this over all time, or disallow shrinking?
-        self.obs_com = center_mass(self.saved_obs)
+        if self.obs_com is None:
+            self.obs_com = center_mass(self.saved_obs)
+        else:
+            self.obs_com = self.obs_com + (self.curr - self.obs_com)/self.n_obs
         self.scale = np.max(np.abs(self.saved_obs - self.obs_com))*2
         self.com_list.append(self.obs_com)
         self.scale_list.append(self.scale)
