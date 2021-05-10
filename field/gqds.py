@@ -16,7 +16,7 @@ from jax.scipy.special import logsumexp as lse
 import matplotlib.tri as mtri
 from scipy.special import softmax, log_softmax
 from jax import nn
-
+from jax.ops import index, index_update
 
 epsilon = 1e-10
 np.set_printoptions(precision=4)
@@ -32,7 +32,7 @@ np.seterr(invalid='raise')
 ## Working title: 'Graph quantized dynamical systems' (gqds) --> need to rename to LCB (?)
 
 class GQDS():
-    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, kappa=1e-2):
+    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, kappa=1e-2, n_thresh=1e-6, B_thresh=1e-4, t_wait=200):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
@@ -43,8 +43,13 @@ class GQDS():
         self.sigma_scale = sigma_scale
         # self.beta = beta      ## NOTE: beta defined in em ~1/t
         self.kap = kappa
+        self.n_thresh = n_thresh
+        self.B_thresh = B_thresh
+        self.t_wait = t_wait
         
-        self.printing = False
+        ## TODO: setup proper logging
+        self.printing = True
+        
         np.random.seed(self.seed)
 
         # observations of the data; M is how many to keep in history
@@ -118,7 +123,7 @@ class GQDS():
 
         ## With these new values, update ss
         self.t = 1
-        self.update_ss()
+        self.update_ss()        ## ?
 
         ## Set up gradients
         self.grad_mu = jit(grad(Q_est, argnums=0))
@@ -146,6 +151,8 @@ class GQDS():
 
         # self.set_neighbors()
 
+        self.dead_nodes = []
+
     def set_neighbors(self):
         self.G = nx.Graph()
         self.G.add_nodes_from(np.arange(0,self.N))
@@ -169,11 +176,14 @@ class GQDS():
         # take step in E and M; after observation
 
         self.last_alpha = self.alpha.copy()
-        if self.printing:
-            print(self.alpha)
+        # if self.printing:
+        #     print(self.alpha)
 
         # self.eps = 0.03 #1/(self.t+1)
         self.beta = 1 + 10/(self.t+1)
+
+        if self.t>self.t_wait:       
+            self.remove_dead_nodes()
 
         self.update_B()
         self.update_gamma()
@@ -193,7 +203,16 @@ class GQDS():
             self.fullSigma[n] = inv.T @ inv
         self.B = multiple_logpdfs(self.obs.curr, self.mu, self.fullSigma)
         # print('new B ', time.time()-timer)
-        
+
+        # if self.printing:
+        #     print(np.max(self.B))
+
+        if (self.dead_nodes) and np.max(self.B) < self.B_thresh:
+            ## if we have any free nodes and no node is nearby this datapoint
+            node = self.teleport_node()
+            ## recompute B? in other function
+            self.B[node] = mvn.logpdf(self.obs.curr, self.mu[node], self.fullSigma[node])
+
         max_Bind = np.argmax(self.B)
         self.B -= self.B[max_Bind]
         self.B = np.exp(self.B)
@@ -221,11 +240,11 @@ class GQDS():
         self.En = self.gamma * self.last_alpha[:,np.newaxis] + (1-self.eps) * self.En
         
 
-    def update_A(self):
-        # Compute updated state evolution matrix A using N
-        # A_{i,j} = N_{i,j} / sum_j N_{i,j}
+    # def update_A(self):
+    #     # Compute updated state evolution matrix A using N
+    #     # A_{i,j} = N_{i,j} / sum_j N_{i,j}
 
-        self.A = self.En / (np.sum(self.En, axis=1)[:,np.newaxis])
+    #     self.A = self.En / (np.sum(self.En, axis=1)[:,np.newaxis])
 
 
     def update_S(self):
@@ -251,7 +270,45 @@ class GQDS():
             mus[n] = np.outer(self.mu[n], self.mu[n])
         self.fullSigma = (self.fullSigma_orig + self.lam[:,None,None]*self.mus_orig + self.S2 - (self.lam + self.n_obs)[:,None,None] * mus) / (self.nu + self.d + 1 + self.n_obs)[:,None,None]
 
-    
+
+    def remove_dead_nodes(self):
+        ## if any nodes n_obs<thresh, remove
+        ind = np.argwhere(self.n_obs < self.n_thresh).flatten().tolist()
+        try:
+            ind2 = [i for i in ind if i not in self.dead_nodes]
+        except:
+            breakpoint()
+        if ind2:
+            self.dead_nodes.extend(ind2)
+            # s = len(ind2)
+            # self.log_A = index_update(self.log_A, index[ind2], jnp.zeros(()))
+            if self.printing:
+                print('Removed dead nodes: ', ind2)
+                print(self.dead_nodes)
+
+
+    def teleport_node(self):
+        node = self.dead_nodes.pop(0)
+
+        mu_update = (self.lam[node] * self.obs.curr + self.S1[node]) / (self.lam[node] + self.n_obs[node])
+
+        # self.mu[node] = self.obs.curr
+        self.mu = index_update(self.mu, index[node], mu_update) #self.obs.curr)
+        self.alpha[node] = 1        
+
+        # self.S1[node] = (1 - self.eps)*self.S1[node] + self.alpha[node] * self.obs.curr
+        # self.S2[node] = (1 - self.eps)*self.S2[node] + self.alpha[node] * (self.obs.curr * self.obs.curr.T)
+        # self.n_obs[node] = (1 - self.eps)*self.n_obs[node] + self.alpha[node]
+        
+        # self.mu[node] = (self.lam[node] * self.obs.curr + self.S1[node]) / (self.lam[node] + self.n_obs[node])
+        # sig = (self.fullSigma_orig[node] + self.lam[node]*self.mus_orig[node] + self.S2[node] - (self.lam + self.n_obs)[node] * np.outer(self.mu[node], self.mu[node])) / (self.nu[node] + self.d + 1 + self.n_obs[node])
+
+
+        if self.printing:
+            print('Teleported node ', node, ' to current data location')
+
+        return node
+
     def grad_Q(self):
 
         args = [self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.En, self.nu, self.n_obs, self.beta, self.mu_orig, self.fullSigma_orig, self.d, self.mus_orig, self.obs.obs_com]
@@ -278,7 +335,7 @@ class GQDS():
 
         self.A = softmax(self.log_A, axis=1)
 
-        self.A_diff.append(self.A-self.A_orig)
+        # self.A_diff.append(self.A-self.A_orig)
         
         # timer = time.time()
         self.L = np.zeros((self.N,self.d,self.d)) #= np.diagonal(np.exp(self.L_diag)) + self.L_lower
@@ -347,9 +404,8 @@ def Q_est(mu, L, L_diag, log_A, lam, S1, S2, En, nu, n_obs, beta, mu_orig, sigma
         summed += (-1/2) * (nu[j] + n_obs[j] + d + 2) * ld
         summed += jnp.sum((En[j] + beta - 1) * nn.log_softmax(log_A[j])) 
 
-        summed -= 0.0001*jnp.linalg.norm(mu - com + epsilon)**2
+        # summed -= 0.0001*jnp.linalg.norm(mu - com + epsilon)**2
         
-
     return -summed/t 
 
 def get_L(x, y):

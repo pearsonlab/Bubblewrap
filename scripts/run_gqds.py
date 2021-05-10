@@ -18,19 +18,22 @@ from math import atan2
 
 
 ## parameters
-N = 64
+N = 49
 d = 2
 step = 1e-1
 lam = 2
 nu = 2
-sigma_scale = 1e4 #9e3 #1.5e4 #9e3
+sigma_scale = 1e4
 
 dt = 0.1
 M = 30
-T = 300 + M
-P = 0 #20 #200
+T = 400 + M
+P = 0 
 
-gq = GQDS(N, d, step=step, lam=lam, M=M, sigma_scale=sigma_scale, nu=nu) #, beta=beta)
+t_wait = 140
+B_thresh = -5.8
+
+gq = GQDS(N, d, step=step, lam=lam, M=M, sigma_scale=sigma_scale, nu=nu, t_wait=t_wait, B_thresh=B_thresh)
 
 ## Generate data from 2d vdp oscillator
 if T>1:
@@ -119,7 +122,7 @@ pos = np.dstack((x, y))
 ## run online
 timer = time.time()
 times = []
-for i in np.arange(0, T - M):
+for i in np.arange(-M, T - M):
     # print(i)
     t1 = time.time()
     gq.observe(data[i+M])
@@ -127,31 +130,35 @@ for i in np.arange(0, T - M):
     times.append(time.time()-t1)    
 
     if make_movie:
-        if True: #i < 200 or i > 300:
+        if i < 200 or i > 300:
             plots.plot_color(data[:i+1+M, 0], data[:i+1+M, 1], t[:i+1+M], axs, alpha=1) #, cmap='PuBu')
             for n in np.arange(N):
-                # sig = gq.L[n] @ gq.L[n].T
-                u,s,v = np.linalg.svd(gq.fullSigma[n])
-                width, height = s[0]*4, s[1]*4 #*=4
-                if width>1e5 or height>1e5:
+                if n in gq.dead_nodes:
+                    ## don't plot dead nodes
                     pass
                 else:
-                    angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
-                    # breakpoint()
-                    el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
-                    el.set_alpha(0.2)
-                    el.set_clip_box(axs.bbox)
-                    el.set_facecolor('r')  ##ed6713')
-                    axs.add_artist(el)
-            
-            # plt.text(gq.mu[n,0]+1, gq.mu[n,1], str(n))
+                    # sig = gq.L[n] @ gq.L[n].T
+                    u,s,v = np.linalg.svd(gq.fullSigma[n])
+                    width, height = s[0]*2.25, s[1]*2.25 #*=4
+                    if width>1e5 or height>1e5:
+                        pass
+                    else:
+                        angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
+                        # breakpoint()
+                        el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
+                        el.set_alpha(0.2)
+                        el.set_clip_box(axs.bbox)
+                        el.set_facecolor('r')  ##ed6713')
+                        axs.add_artist(el)
+                
+                    # plt.text(gq.mu[n,0]+1, gq.mu[n,1], str(n))
 
         else: #i between 200 and 300
             # find node closest to data point
             node = np.argmax(gq.alpha)
             A = gq.A.copy()
             A[A<=(1/N)] = 0
-            # plots.plot_color(data[:i+M+1, 0], data[:i+M+1, 1], t[:i+M+1], axs, alpha=1) #, cmap='PuBu')
+            plots.plot_color(data[:i+M+1, 0], data[:i+M+1, 1], t[:i+M+1], axs, alpha=1) #, cmap='PuBu')
             for j in np.arange(N):
                 if A[node,j] > 0 and not node==j:
                     print('Arrow from ', str(node), ' to ', str(j))
@@ -160,6 +167,8 @@ for i in np.arange(0, T - M):
         plt.xlim([-30,30])
         plt.ylim([-30,30])
 
+        # mask = np.ones(gq.mu.shape[0], dtype=np.bool)
+        # mask[gq.dead_nodes] = False
         axs.scatter(gq.mu[:,0], gq.mu[:,1], c='k' , zorder=10)
 
         # plt.gca().set_xticks([],[])
@@ -185,8 +194,8 @@ for i in np.arange(0, T - M):
         plt.draw()
         writer.grab_frame()
 
-        # if i >= 200 and i <= 300:
-        #     writer.grab_frame()
+        if i >= 200 and i <= 300:
+            writer.grab_frame()
         
         # axs[0].cla()
         # axs[1].cla()
