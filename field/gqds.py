@@ -32,7 +32,7 @@ np.seterr(invalid='raise')
 ## Working title: 'Graph quantized dynamical systems' (gqds) --> need to rename to LCB (?)
 
 class GQDS():
-    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, kappa=1e-2, n_thresh=1e-6, B_thresh=1e-4, t_wait=200):
+    def __init__(self, num, num_d, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, mu_scale=2, kappa=1e-2, n_thresh=1e-6, B_thresh=1e-4, t_wait=200):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
@@ -46,6 +46,8 @@ class GQDS():
         self.n_thresh = n_thresh
         self.B_thresh = B_thresh
         self.t_wait = t_wait
+        self.num_d = num_d
+        self.mu_scale = mu_scale
         
         ## TODO: setup proper logging
         self.printing = True
@@ -62,13 +64,13 @@ class GQDS():
     def init_nodes(self):
         ### Compute initial ss based on observed data so far
         # set initial centers of nodes distributed across space of observations
-        sl = [slice(0, floor(np.sqrt(self.N)))] * self.d       
+        sl = [slice(0, self.num_d)] * self.d       
         self.mu = np.mgrid[sl].reshape((self.d, self.N)).astype("float32").T
 
         com = center_mass(self.mu)
         if len(self.obs.saved_obs) > 1:
             obs_com = center_mass(self.obs.saved_obs)
-            self.scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2  / self.d / floor(np.sqrt(self.N))
+            self.scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2  / self.num_d
         else:
             ## this section for if we init mesh with no data
             obs_com = 0
@@ -77,7 +79,7 @@ class GQDS():
             self.scale = 1
 
         self.mu -= com
-        self.scale *= 15        ## TODO: make input param
+        self.scale *= self.mu_scale
         self.mu *= self.scale
         self.mu += obs_com
 
@@ -284,15 +286,16 @@ class GQDS():
             # self.log_A = index_update(self.log_A, index[ind2], jnp.zeros(()))
             if self.printing:
                 print('Removed dead nodes: ', ind2)
-                print(self.dead_nodes)
+                # print(self.dead_nodes)
 
 
     def teleport_node(self):
         node = self.dead_nodes.pop(0)
 
-        mu_update = (self.lam[node] * self.obs.curr + self.S1[node]) / (self.lam[node] + self.n_obs[node])
+        # mu_update = (self.lam[node] * self.obs.curr + self.S1[node]) / (self.lam[node] + self.n_obs[node])
 
         # self.mu[node] = self.obs.curr
+        mu_update = self.obs.curr
         self.mu = index_update(self.mu, index[node], mu_update) #self.obs.curr)
         self.alpha[node] = 1        
 
