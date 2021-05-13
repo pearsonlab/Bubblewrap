@@ -32,7 +32,7 @@ np.seterr(invalid='raise')
 ## Working title: 'Graph quantized dynamical systems' (gqds) --> need to rename to LCB (?)
 
 class GQDS():
-    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, kappa=1e-2, n_thresh=1e-6, B_thresh=1e-4, t_wait=200):
+    def __init__(self, num, num_d, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, mu_scale=2, kappa=1e-2, n_thresh=1e-6, B_thresh=1e-4, t_wait=200):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
@@ -46,6 +46,8 @@ class GQDS():
         self.n_thresh = n_thresh
         self.B_thresh = B_thresh
         self.t_wait = t_wait
+        self.num_d = num_d
+        self.mu_scale = mu_scale
         
         ## TODO: setup proper logging
         self.printing = True
@@ -58,17 +60,20 @@ class GQDS():
 
         self.alpha = (1/self.N)*np.ones(self.N)
 
+        self.time_observe = []
+        self.time_updates = []
+        self.time_grad_Q = []
         
     def init_nodes(self):
         ### Compute initial ss based on observed data so far
         # set initial centers of nodes distributed across space of observations
-        sl = [slice(0, floor(np.sqrt(self.N)))] * self.d       
+        sl = [slice(0, self.num_d)] * self.d       
         self.mu = np.mgrid[sl].reshape((self.d, self.N)).astype("float32").T
 
         com = center_mass(self.mu)
         if len(self.obs.saved_obs) > 1:
             obs_com = center_mass(self.obs.saved_obs)
-            self.scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2  / self.d / floor(np.sqrt(self.N))
+            self.scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2  / self.num_d
         else:
             ## this section for if we init mesh with no data
             obs_com = 0
@@ -77,7 +82,7 @@ class GQDS():
             self.scale = 1
 
         self.mu -= com
-        self.scale *= 15        ## TODO: make input param
+        self.scale *= self.mu_scale
         self.mu *= self.scale
         self.mu += obs_com
 
@@ -126,10 +131,11 @@ class GQDS():
         self.update_ss()        ## ?
 
         ## Set up gradients
-        self.grad_mu = jit(grad(Q_est, argnums=0))
-        self.grad_L_lower = jit(grad(Q_est, argnums=1))
-        self.grad_L_diag = jit(grad(Q_est, argnums=2))
-        self.grad_A = jit(grad(Q_est, argnums=3))
+        # self.grad_mu = jit(grad(Q_est, argnums=0))
+        # self.grad_L_lower = jit(grad(Q_est, argnums=1))
+        # self.grad_L_diag = jit(grad(Q_est, argnums=2))
+        # self.grad_A = jit(grad(Q_est, argnums=3))
+        self.grad_all = jit(grad(Q_est, argnums=(0,1,2,3)))
 
         self.Q_list = []
         self.A_diff = []
@@ -153,6 +159,8 @@ class GQDS():
 
         self.dead_nodes = []
 
+       
+
     def set_neighbors(self):
         self.G = nx.Graph()
         self.G.add_nodes_from(np.arange(0,self.N))
@@ -168,18 +176,20 @@ class GQDS():
         ### Adjust by number of neighbors?
         # self.neighbors = self.neighbors / (np.sum(self.neighbors, axis=1)[:,np.newaxis])
         
+    # @profile
     def observe(self, x):
         # Get new data point and update observation history
+        timer = time.time()
         self.obs.new_obs(x)
+        self.time_observe.append(time.time()-timer)
 
+    # @profile
     def em_step(self):
         # take step in E and M; after observation
 
+        timer = time.time()
         self.last_alpha = self.alpha.copy()
-        # if self.printing:
-        #     print(self.alpha)
-
-        # self.eps = 0.03 #1/(self.t+1)
+        
         self.beta = 1 + 10/(self.t+1)
 
         if self.t>self.t_wait:       
@@ -189,12 +199,16 @@ class GQDS():
         self.update_gamma()
         self.update_alpha()
         self.update_En()
-
         self.update_S()
+        self.time_updates.append(time.time()-timer)
+
+        timer = time.time()
         self.grad_Q()
+        self.time_grad_Q.append(time.time()-timer)
 
         self.t += 1
 
+    # @profile
     def update_B(self):
         # Compute posterior over graph
         # timer = time.time()
@@ -216,6 +230,7 @@ class GQDS():
         max_Bind = np.argmax(self.B)
         self.B -= self.B[max_Bind]
         self.B = np.exp(self.B)
+        # print('final B ', time.time()-timer)
 
     def update_gamma(self):
         # Compute new update matrix gamma
@@ -270,7 +285,7 @@ class GQDS():
             mus[n] = np.outer(self.mu[n], self.mu[n])
         self.fullSigma = (self.fullSigma_orig + self.lam[:,None,None]*self.mus_orig + self.S2 - (self.lam + self.n_obs)[:,None,None] * mus) / (self.nu + self.d + 1 + self.n_obs)[:,None,None]
 
-
+    # @profile
     def remove_dead_nodes(self):
         ## if any nodes n_obs<thresh, remove
         ind = np.argwhere(self.n_obs < self.n_thresh).flatten().tolist()
@@ -284,15 +299,16 @@ class GQDS():
             # self.log_A = index_update(self.log_A, index[ind2], jnp.zeros(()))
             if self.printing:
                 print('Removed dead nodes: ', ind2)
-                print(self.dead_nodes)
+                # print(self.dead_nodes)
 
-
+    # @profile
     def teleport_node(self):
         node = self.dead_nodes.pop(0)
 
-        mu_update = (self.lam[node] * self.obs.curr + self.S1[node]) / (self.lam[node] + self.n_obs[node])
+        # mu_update = (self.lam[node] * self.obs.curr + self.S1[node]) / (self.lam[node] + self.n_obs[node])
 
         # self.mu[node] = self.obs.curr
+        mu_update = self.obs.curr
         self.mu = index_update(self.mu, index[node], mu_update) #self.obs.curr)
         self.alpha[node] = 1        
 
@@ -309,15 +325,17 @@ class GQDS():
 
         return node
 
+    # @profile
     def grad_Q(self):
 
-        args = [self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.En, self.nu, self.n_obs, self.beta, self.mu_orig, self.fullSigma_orig, self.d, self.mus_orig, self.obs.obs_com]
+        args = [self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.En, self.nu, self.n_obs, self.beta*np.ones((self.N,1)), self.mu_orig, self.fullSigma_orig, self.d*np.ones((self.N,1)), self.mus_orig, self.obs.obs_com]
 
         # timer = time.time()
-        grad_mu = self.grad_mu(*args)
-        grad_L = np.array(self.grad_L_lower(*args))
-        grad_L_diag = np.array(self.grad_L_diag(*args))
-        grad_A = self.grad_A(*args)
+        # grad_mu = self.grad_mu(*args)
+        # grad_L = np.array(self.grad_L_lower(*args))
+        # grad_L_diag = np.array(self.grad_L_diag(*args))
+        # grad_A = self.grad_A(*args)
+        grad_mu, grad_L, grad_L_diag, grad_A = self.grad_all(*args)
         # print('Compute gradients ', time.time()-timer)
         
         if (grad_L_diag > 1e3).any():
@@ -326,7 +344,7 @@ class GQDS():
 
         ## adam
         # timer = time.time()
-        updates = self.run_adam(grad_mu, grad_L, grad_L_diag, grad_A)
+        updates = self.run_adam(grad_mu, np.array(grad_L), np.array(grad_L_diag), grad_A)
         # print('Compute adam update ', time.time()-timer)
         self.mu -= updates[0] 
         self.L_lower -= updates[1] 
@@ -352,6 +370,7 @@ class GQDS():
 
         self.step /= 1.001
 
+    # @profile
     def run_adam(self, mu,L,L_diag,A):
         ## inputs are gradients
         ## TODO: rewrite this
@@ -389,24 +408,28 @@ def Q_est(mu, L, L_diag, log_A, lam, S1, S2, En, nu, n_obs, beta, mu_orig, sigma
     d = mu.shape[1]
     t = 1+jnp.sum(En)
 
-    ## is this even faster?
+    ## is this even faster? yes
     el = vmap(get_L, (0,0))(L_diag,L)
     sig_inv = vmap(get_sig_inv, 0)(el)
+    mus = vmap(get_mus, 0)(mu)
+    ld = vmap(get_ld, 0)(L_diag)
 
-    summed = 0
-    for j in jnp.arange(N):
+    # summed = 0
+    # for j in jnp.arange(N):
 
-        ld = -2 * jnp.sum(L_diag[j])
-        mus = jnp.outer(mu[j], mu[j])
+    #     # ld = -2 * jnp.sum(L_diag[j])
+    #     # mus = jnp.outer(mu[j], mu[j])
 
-        summed += (S1[j] ).dot(sig_inv[j]).dot(mu[j]) 
-        summed += (-1/2) * jnp.trace( (sigma_orig[j] + S2[j] + (n_obs[j]) * mus) @ sig_inv[j] ) 
-        summed += (-1/2) * (nu[j] + n_obs[j] + d + 2) * ld
-        summed += jnp.sum((En[j] + beta - 1) * nn.log_softmax(log_A[j])) 
+    #     summed += (S1[j] ).dot(sig_inv[j]).dot(mu[j]) 
+    #     summed += (-1/2) * jnp.trace( (sigma_orig[j] + S2[j] + (n_obs[j]) * mus[j]) @ sig_inv[j] ) 
+    #     summed += (-1/2) * (nu[j] + n_obs[j] + d + 2) * ld[j]
+    #     summed += jnp.sum((En[j] + beta - 1) * nn.log_softmax(log_A[j])) 
+
+    summed = vmap(Q_j, 0)(S1, sig_inv, mu, sigma_orig, S2, n_obs, mus, nu, ld, En, log_A, beta)
 
         # summed -= 0.0001*jnp.linalg.norm(mu - com + epsilon)**2
         
-    return -summed/t 
+    return -jnp.sum(summed)/t 
 
 def get_L(x, y):
     return jnp.tril(jnp.diag(jnp.exp(x) + epsilon) + jnp.tril(y,-1))
@@ -422,6 +445,17 @@ def get_sub_l(L):
 
 def get_mus(mu):
     return jnp.outer(mu,mu)
+
+def get_ld(L):
+    return -2 * jnp.sum(L)
+
+def Q_j(S1, sig_inv, mu, sigma_orig, S2, n_obs, mus, nu, ld, En, log_A, beta):
+    summed = 0
+    summed += (S1).dot(sig_inv).dot(mu) 
+    summed += (-1/2) * jnp.trace( (sigma_orig + S2 + (n_obs) * mus) @ sig_inv ) 
+    summed += (-1/2) * (nu + n_obs + 3 + 2) * ld
+    summed += jnp.sum((En + beta - 1) * nn.log_softmax(log_A)) 
+    return summed
 
 ## http://gregorygundersen.com/blog/2020/12/12/group-multivariate-normal-pdf/
 def multiple_logpdfs(x, means, covs):
