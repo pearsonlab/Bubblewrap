@@ -7,7 +7,7 @@ import time
 from field.mesh import Observations
 from field.utils import center_mass
 
-from jax import jit, grad, vmap
+from jax import jit, grad, vmap, value_and_grad
 import jax.scipy.stats
 from jax.scipy.stats import multivariate_normal as jmvn
 from scipy.stats import multivariate_normal as mvn
@@ -94,17 +94,7 @@ class GQDS():
         self.nu = self.nu_0 * prior
 
         self.n_obs = 0*self.alpha
-
-        self.fullSigma = np.zeros((self.N,self.d,self.d), dtype="float32")
-        self.L = np.zeros((self.N,self.d,self.d))
-        self.L_diag = np.zeros((self.N,self.d))
-        for n in np.arange(self.N):
-            self.fullSigma[n] = np.diagflat(self.sigma_scale*(1/self.scale)*np.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
-            L = np.linalg.cholesky(self.fullSigma[n])
-            self.L[n] = np.linalg.inv(L).T
-            self.L_diag[n] = np.log(np.diag(self.L[n]))        
-        ### NOTE: L is now defined using cholesky of precision matrix, NOT covariance!
-        self.L_lower = np.tril(self.L,-1) #np.zeros((self.N,self.d,self.d)) 
+        self.mu_orig = self.mu.copy()
 
         ### Initialize model parameters (A,En,...)
         self.A = np.ones((self.N,self.N)) - np.eye(self.N)#*0.99999
@@ -121,21 +111,36 @@ class GQDS():
 
         self.log_A = np.zeros((self.N,self.N))
 
-        ### Save copies of mu, sigma, A for later comparison
-        self.mu_orig = self.mu.copy()
+
+        self.fullSigma = np.zeros((self.N,self.d,self.d), dtype="float32")
+        self.L = np.zeros((self.N,self.d,self.d))
+        self.L_diag = np.zeros((self.N,self.d))
+        for n in np.arange(self.N):
+            self.fullSigma[n] = np.diagflat(self.sigma_scale*(1/self.scale)*np.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
+
         self.fullSigma_orig = self.fullSigma.copy()
+        self.update_ss()       
+        
+        for n in np.arange(self.N):
+            L = np.linalg.cholesky(self.fullSigma[n])
+            self.L[n] = np.linalg.inv(L).T
+            self.L_diag[n] = np.log(np.diag(self.L[n]))        
+        ### NOTE: L is now defined using cholesky of precision matrix, NOT covariance!
+        self.L_lower = np.tril(self.L,-1) #np.zeros((self.N,self.d,self.d)) 
+
+        ### Save copies of mu, sigma, A for later comparison
+        
         self.A_orig = self.A.copy()
 
         ## With these new values, update ss
         self.t = 1
-        self.update_ss()        ## ?
 
         ## Set up gradients
         # self.grad_mu = jit(grad(Q_est, argnums=0))
         # self.grad_L_lower = jit(grad(Q_est, argnums=1))
         # self.grad_L_diag = jit(grad(Q_est, argnums=2))
         # self.grad_A = jit(grad(Q_est, argnums=3))
-        self.grad_all = jit(grad(Q_est, argnums=(0,1,2,3)))
+        self.grad_all = jit(value_and_grad(Q_est, argnums=(0,1,2,3)))
 
         self.Q_list = []
         self.A_diff = []
@@ -157,9 +162,7 @@ class GQDS():
 
         # self.set_neighbors()
 
-        self.dead_nodes = []
-
-       
+        self.dead_nodes = [] 
 
     def set_neighbors(self):
         self.G = nx.Graph()
@@ -221,7 +224,12 @@ class GQDS():
         # if self.printing:
         #     print(np.max(self.B))
 
-        if (self.dead_nodes) and np.max(self.B) < self.B_thresh:
+        if np.max(self.B) < self.B_thresh:
+            if not (self.dead_nodes):
+                ## got to kill a node!
+                target = np.argmin(self.n_obs)
+                self.n_obs[target] = 0
+                self.remove_dead_nodes()
             ## if we have any free nodes and no node is nearby this datapoint
             node = self.teleport_node()
             ## recompute B? in other function
@@ -295,8 +303,11 @@ class GQDS():
             breakpoint()
         if ind2:
             self.dead_nodes.extend(ind2)
-            # s = len(ind2)
-            # self.log_A = index_update(self.log_A, index[ind2], jnp.zeros(()))
+            s = len(ind2)
+            # breakpoint()
+            for n_i in ind2:
+                self.log_A = index_update(self.log_A, index[n_i], jnp.zeros(self.N))
+                self.log_A = index_update(self.log_A, index[:,n_i], jnp.zeros(self.N))
             if self.printing:
                 print('Removed dead nodes: ', ind2)
                 # print(self.dead_nodes)
@@ -321,7 +332,7 @@ class GQDS():
 
 
         if self.printing:
-            print('Teleported node ', node, ' to current data location')
+            print('Teleported node ', node, ' to current data location at time ', self.t)
 
         return node
 
@@ -335,7 +346,7 @@ class GQDS():
         # grad_L = np.array(self.grad_L_lower(*args))
         # grad_L_diag = np.array(self.grad_L_diag(*args))
         # grad_A = self.grad_A(*args)
-        grad_mu, grad_L, grad_L_diag, grad_A = self.grad_all(*args)
+        Q_value, (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(*args)
         # print('Compute gradients ', time.time()-timer)
         
         if (grad_L_diag > 1e3).any():
@@ -365,7 +376,7 @@ class GQDS():
         # Q = -Q_est(*args)
         # print('Evaulate Q ', time.time()-timer)
         # print(self.t) #, Q)
-        # self.Q_list.append(Q)
+        self.Q_list.append(Q_value)
         # print('-------------------------------after gradient')
 
         self.step /= 1.001
@@ -425,7 +436,7 @@ def Q_est(mu, L, L_diag, log_A, lam, S1, S2, En, nu, n_obs, beta, mu_orig, sigma
     #     summed += (-1/2) * (nu[j] + n_obs[j] + d + 2) * ld[j]
     #     summed += jnp.sum((En[j] + beta - 1) * nn.log_softmax(log_A[j])) 
 
-    summed = vmap(Q_j, 0)(S1, sig_inv, mu, sigma_orig, S2, n_obs, mus, nu, ld, En, log_A, beta)
+    summed = vmap(Q_j, 0)(S1, lam, sig_inv, mu, mu_orig, sigma_orig, S2, n_obs, mus, mus_orig, nu, ld, En, log_A, beta)
 
         # summed -= 0.0001*jnp.linalg.norm(mu - com + epsilon)**2
         
@@ -449,10 +460,10 @@ def get_mus(mu):
 def get_ld(L):
     return -2 * jnp.sum(L)
 
-def Q_j(S1, sig_inv, mu, sigma_orig, S2, n_obs, mus, nu, ld, En, log_A, beta):
+def Q_j(S1, lam, sig_inv, mu, mu_orig, sigma_orig, S2, n_obs, mus, mus_orig, nu, ld, En, log_A, beta):
     summed = 0
-    summed += (S1).dot(sig_inv).dot(mu) 
-    summed += (-1/2) * jnp.trace( (sigma_orig + S2 + (n_obs) * mus) @ sig_inv ) 
+    summed += (S1 + lam * mu_orig).dot(sig_inv).dot(mu) 
+    summed += (-1/2) * jnp.trace( (sigma_orig + S2 + lam * mus_orig + (lam + n_obs) * mus) @ sig_inv ) 
     summed += (-1/2) * (nu + n_obs + 3 + 2) * ld
     summed += jnp.sum((En + beta - 1) * nn.log_softmax(log_A)) 
     return summed
