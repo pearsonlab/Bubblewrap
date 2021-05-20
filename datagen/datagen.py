@@ -95,7 +95,7 @@ def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
 
     for i in trange(num_trajectories):
         t, x, projed = gen_data_diffeq(f, random_proj,
-                                       t=(0, 125), x0=x0, dim=num_dim, noise="normal",
+                                       t=(0, 125), x0=x0 + 0.01, dim=num_dim, noise="normal",
                                        ivp_kwargs={'max_step': 0.05},
                                        noise_kwargs={"loc": 0, "scale": noise},)
         t = t[begin:end]
@@ -116,12 +116,11 @@ def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
 def generate_lorenz():
     """
     * begin/end: not ommiting first 500 --> begin=0, end=2000   OR   ommiting first 500 --> begin:500, end=2500
-    * num_trajectory = 1 OR 100
+    * num_trajectory = 1  # for comparison purpose
     * noise level: noise = 0.05   OR   0.2    OR    1
     (0.05 is the value Anne used, 1 is the value that memming's lab used)
     * num_dim = 3 # we will stick with 3 for our comparison purpose!
-    (200 is the value that memming's lab used)
-    2 x 2 x 3 x 1 = 12 example datasets
+    2 x 1 x 3 x 1 = 6 example datasets
     """
     for num_trajectory in [1, 100]:
         for (begin, end) in [(0, 2000), (500, 2500)]:
@@ -133,12 +132,11 @@ def generate_lorenz():
 def generate_vdp():
     """
     * begin/end: not ommiting first 500 --> begin=0, end=2000   OR   ommiting first 500 --> begin:500, end=2500
-    * num_trajectory = 1 OR 100
+    * num_trajectory = 1  # for comparison purpose
     * noise level: noise = 0.05   OR   0.2    OR    1
     (0.05 is the value Anne used, 1 is the value that memming's lab used)
-    * num_dim = 2 # we will stick with 2 for our comparison purpose!
-    (200 is the value that memming's lab used)
-    2 x 2 x 3 x 1 = 12 example datasets
+    * num_dim = 2 # we will stick with 3 for our comparison purpose!
+    2 x 1 x 3 x 1 = 6 example datasets
     """
     for num_trajectory in [1, 100]:
         for (begin, end) in [(0, 2000), (500, 2500)]:
