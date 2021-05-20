@@ -95,7 +95,7 @@ def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
 
     for i in trange(num_trajectories):
         t, x, projed = gen_data_diffeq(f, random_proj,
-                                       t=(0, 125), x0=x0 + 0.01, dim=num_dim, noise="normal",
+                                       t=(0, 12500), x0=x0 + 0.01, dim=num_dim, noise="normal",
                                        ivp_kwargs={'max_step': 0.05},
                                        noise_kwargs={"loc": 0, "scale": noise},)
         t = t[begin:end]
@@ -123,7 +123,7 @@ def generate_lorenz():
     1 x 1 x 2 x 1 = 2 example datasets
     """
     for num_trajectory in [1]:
-        for (begin, end) in [(500, 24500)]:
+        for (begin, end) in [(500, 20500)]:
             for noise in [0.05, 0.2]:
                 for num_dim in [3]:
                     make_dataset(lorenz, x0=np.array([0, 1, 1.05]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end, noise=noise)
@@ -139,7 +139,7 @@ def generate_vdp():
     1 x 1 x 2 x 1 = 6 example datasets
     """
     for num_trajectory in [1]:
-        for (begin, end) in [(500, 24500)]:
+        for (begin, end) in [(500, 20500)]:
             for noise in [0.05, 0.2]:
                 for num_dim in [2]:
                     make_dataset(vdp, x0=np.array([0.1, 0.1]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end,
