@@ -119,13 +119,13 @@ def generate_lorenz():
     * num_trajectory = 1  # one long trajectory
     * noise level: noise = 0.05   OR   0.2
     (0.05 is the value Anne used, 1 is the value that memming's lab used)
-    * num_dim = 3 # we will stick with 3 for our comparison purpose!
-    1 x 1 x 2 x 1 = 2 example datasets
+    * num_dim = 3 or 200 # 3 is to match with bubblewrap and 200 is from the original memming 2020 paper
+    1 x 1 x 2 x 2 = 12 example datasets
     """
     for num_trajectory in [1]:
         for (begin, end) in [(500, 20500)]:
             for noise in [0.05, 0.2]:
-                for num_dim in [3]:
+                for num_dim in [3, 200]:
                     make_dataset(lorenz, x0=np.array([0, 1, 1.05]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end, noise=noise)
 
 
@@ -135,13 +135,13 @@ def generate_vdp():
     * num_trajectory = 1  # one long trajectory
     * noise level: noise = 0.05   OR   0.2
     (0.05 is the value Anne used, 1 is the value that memming's lab used)
-    * num_dim = 2 # we will stick with 3 for our comparison purpose!
-    1 x 1 x 2 x 1 = 6 example datasets
+    * num_dim = 2 or 200 # 2 is to match with bubblewrap and 200 is from the original memming 2020 paper
+    1 x 1 x 2 x 2 = 12 example datasets
     """
     for num_trajectory in [1]:
         for (begin, end) in [(500, 20500)]:
             for noise in [0.05, 0.2]:
-                for num_dim in [2]:
+                for num_dim in [2, 200]:
                     make_dataset(vdp, x0=np.array([0.1, 0.1]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end,
                                      noise=noise)
 
