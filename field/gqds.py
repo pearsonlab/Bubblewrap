@@ -120,13 +120,14 @@ class GQDS():
         self.fullSigma = numpy.zeros((self.N,self.d,self.d), dtype="float32")
         self.L = numpy.zeros((self.N,self.d,self.d))
         self.L_diag = numpy.zeros((self.N,self.d))
+        var = np.var(np.array(self.obs.saved_obs), axis=0)
         for n in numpy.arange(self.N):
-            self.fullSigma[n] = numpy.diagflat(self.sigma_scale*(1/self.scale)*numpy.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
-
+            # self.fullSigma[n] = numpy.diagflat(self.sigma_scale*(1/self.scale)*numpy.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
+            self.fullSigma[n] = np.diag(var)
         self.fullSigma_orig = self.fullSigma.copy()
 
         ## this is important
-        self.update_ss()       
+        # self.update_ss()       
 
         for n in np.arange(self.N):
             L = np.linalg.cholesky(self.fullSigma[n])
@@ -147,6 +148,7 @@ class GQDS():
         self.expB_jax = jit(expB)
         self.update_internal_jax = jit(update_internal)
         self.kill_nodes = jit(kill_dead_nodes)
+        self.log_pred_prob = jit(log_pred_prob)
 
         ## for adam gradients
         ## TODO: rewrite optimally?
@@ -160,8 +162,8 @@ class GQDS():
         self.v_L_diag = np.zeros_like(self.L_diag)
         self.v_A = np.zeros_like(self.A)
 
-        self.dead_nodes = np.arange(0,self.N).tolist()
-        self.dead_nodes_ind = self.n_thresh*numpy.ones(self.N)
+        self.dead_nodes = [] #np.arange(0,self.N).tolist()
+        self.dead_nodes_ind = 0*self.n_thresh*numpy.ones(self.N)
         self.current_node = 0   #?
     
         ## variables for tracking progress
@@ -179,10 +181,6 @@ class GQDS():
         self.time_observe.append(time.time()-timer)
 
     # @profile
-    def log_pred_prob(self):
-        return np.log(np.sum(np.exp(self.B) * self.A[self.current_node] * self.alpha[self.current_node]) + 1e-16)
-
-    # @profile
     def em_step(self):
         # take step in E and M; after observation
 
@@ -191,12 +189,14 @@ class GQDS():
         
         self.beta = 1 + 10/(self.t+1)
 
-        # if self.t>self.t_wait:       
-        #     self.remove_dead_nodes()
+        if self.t>self.t_wait:       
+            self.remove_dead_nodes()
 
         self.B = self.logB_jax(self.obs.curr, self.mu, self.L)
+        
+        new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) #, self.current_node)
         # print(self.log_pred_prob())
-        # self.pred.append(self.log_pred_prob())
+        self.pred.append(new_log_pred)
 
         self.update_B()
 
@@ -246,7 +246,7 @@ class GQDS():
             ind2 = np.argmax(ma)
         
             # try:
-            self.log_A = self.kill_nodes(ind2, self.n_obs, self.n_thresh, self.log_A)
+            self.n_obs, self.S1, self.S2, self.En, self.log_A = self.kill_nodes(ind2, self.n_thresh, self.n_obs, self.S1, self.S2, self.En, self.log_A)
             actual_ind = int(ind2)
             self.dead_nodes.append(actual_ind)
             self.dead_nodes_ind[actual_ind] = self.n_thresh
@@ -408,8 +408,8 @@ def get_ld(L):
 @jit
 def Q_j(S1, lam, sig_inv, mu, mu_orig, sigma_orig, S2, n_obs, mus, mus_orig, nu, ld, En, log_A, beta):
     summed = 0
-    summed += (S1 + lam * mu_orig).dot(sig_inv).dot(mu) 
-    summed += (-1/2) * np.trace( (sigma_orig + S2 + lam * mus_orig + (lam + n_obs) * mus) @ sig_inv ) 
+    summed += (S1 ).dot(sig_inv).dot(mu) 
+    summed += (-1/2) * np.trace( (sigma_orig + S2 + (n_obs) * mus) @ sig_inv ) 
     summed += (-1/2) * (nu + n_obs + 3 + 2) * ld
     summed += np.sum((En + beta - 1) * nn.log_softmax(log_A)) 
     return summed
@@ -445,9 +445,17 @@ def update_internal(A, B, alpha, last_alpha, En, eps, S1, obs_curr, S2, n_obs):
     return gamma, alpha, En, S1, S2, n_obs
 
 
-def kill_dead_nodes(ind2, n_obs, n_thresh, log_A):
+def kill_dead_nodes(ind2, n_thresh, n_obs, S1, S2, En, log_A):
     N = n_obs.shape[0]
+    d = S1.shape[1]
     # for n_i in ind2:
+    n_obs = index_update(n_obs, index[ind2], 0)
+    S1 = index_update(S1, index[ind2], np.zeros(d))
+    S2 = index_update(S2, index[ind2], np.zeros((d,d)))
     log_A = index_update(log_A, index[ind2], np.zeros(N))
     log_A = index_update(log_A, index[:,ind2], np.zeros(N))
-    return log_A
+    return n_obs, S1, S2, En, log_A
+
+
+def log_pred_prob(B, A, alpha):
+    return np.log(alpha @ A @ np.exp(B) + 1e-16)
