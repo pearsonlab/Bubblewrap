@@ -227,8 +227,8 @@ class Observations:
 
     def new_obs(self, coord_new):
         self.curr = coord_new
-        self.vect = self.curr - self.last
-        self.mid = self.last + 0.5*self.vect
+        # self.vect = self.curr - self.last
+        # self.mid = self.last + 0.5*self.vect
 
         self.last = coord_new
         self.n_obs += 1
@@ -236,17 +236,17 @@ class Observations:
         # if len(self.saved_obs)==self.M:
         #     self.saved_obs.popleft()
         self.saved_obs.append(self.curr)
-        self.mid_list.append(self.mid)
-        self.vect_list.append(self.vect)
+        # self.mid_list.append(self.mid)
+        # self.vect_list.append(self.vect)
 
         #TODO: might want to make this over all time, or disallow shrinking?
-        if self.obs_com is None:
-            self.obs_com = center_mass(self.saved_obs)
-        else:
-            self.obs_com = self.obs_com + (self.curr - self.obs_com)/self.n_obs
-        self.scale = np.max(np.abs(self.saved_obs - self.obs_com))*2
-        self.com_list.append(self.obs_com)
-        self.scale_list.append(self.scale)
+        # if self.obs_com is None:
+        #     self.obs_com = center_mass(self.saved_obs)
+        # else:
+        #     self.obs_com = self.obs_com + (self.curr - self.obs_com)/self.n_obs
+        # self.scale = np.max(np.abs(self.saved_obs - self.obs_com))*2
+        # self.com_list.append(self.obs_com)
+        # self.scale_list.append(self.scale)
 
     def get_last_obs(self, n=1):
         # get the last n observations, n<=self.M

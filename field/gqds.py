@@ -4,8 +4,9 @@ import networkx as nx
 import jax.numpy as np
 from math import floor
 import time
+from collections import deque
 
-from field.mesh import Observations
+# from . import Observations
 from field.utils import center_mass
 
 from jax import jit, grad, vmap, value_and_grad
@@ -36,7 +37,7 @@ epsilon = 1e-10
 ## Working title: 'Graph quantized dynamical systems' (gqds) --> need to rename to Bubblewrap TODO
 
 class GQDS():
-    def __init__(self, num, num_d, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, sigma_scale=1e3, mu_scale=2, kappa=1e-2, n_thresh=1e-6, B_thresh=1e-4, t_wait=200):
+    def __init__(self, num, num_d, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
@@ -44,23 +45,23 @@ class GQDS():
         self.lam_0 = lam
         self.nu_0 = nu
         self.eps = eps
-        self.sigma_scale = sigma_scale
-        # self.beta = beta      ## NOTE: beta defined in em ~1/t
-        self.kap = kappa
-        self.n_thresh = n_thresh
         self.B_thresh = B_thresh
+        self.n_thresh = n_thresh
         self.t_wait = t_wait
         self.num_d = num_d
-        self.mu_scale = mu_scale
-        
+        self.batch = batch
+        self.batch_size = batch_size
+        if not self.batch: self.batch_size = 1
+
         ## TODO: setup proper logging
-        self.printing = True
+        self.printing = False
         
         ## not actually used
         self.key = random.PRNGKey(self.seed)
         # np.random.seed(self.seed)
 
         # observations of the data; M is how many to keep in history
+        if self.batch: M=self.batch_size
         self.obs = Observations(self.d, M=M)
 
         self.alpha = (1/self.N)*np.ones(self.N)
@@ -89,7 +90,7 @@ class GQDS():
             self.scale = 1
 
         self.mu -= com
-        self.scale *= self.mu_scale
+        # self.scale *= self.mu_scale
         self.mu *= self.scale
         self.mu += obs_com
 
@@ -141,7 +142,7 @@ class GQDS():
         self.t = 1
 
         ## Set up gradients
-        self.grad_all = jit(value_and_grad(Q_est, argnums=(0,1,2,3)))
+        self.grad_all = jit(grad(Q_est, argnums=(0,1,2,3)))
 
         ## other jitted functions
         self.logB_jax = jit(vmap(single_logB, in_axes=(None, 0, 0)))
@@ -169,44 +170,54 @@ class GQDS():
         ## variables for tracking progress
         self.pred = []
         self.teleported_times = []
+        self.time_em = []
 
         self.Q_list = []
         self.A_diff = []
 
-    # @profile
+    @profile
     def observe(self, x):
         # Get new data point and update observation history
-        timer = time.time()
+        # if self.batch:
+        #     for o in x: # x array of obsevations
+        #         self.obs.new_obs(o)
+        # # timer = time.time()
+        # else:
         self.obs.new_obs(x)
-        self.time_observe.append(time.time()-timer)
+        # self.time_observe.append(time.time()-timer)
 
-    # @profile
+    @profile
     def em_step(self):
         # take step in E and M; after observation
-
-        timer = time.time()
-        self.last_alpha = self.alpha.copy()
-        
+        # if batch:
+        timer=time.time()
+        # for o in self.obs.saved_obs:        # this is 1 if batch False
+            # timer = time.time()
+            # self.last_alpha = self.alpha.copy()
+            # self.obs.curr = o
+            
         self.beta = 1 + 10/(self.t+1)
 
-        if self.t>self.t_wait:       
-            self.remove_dead_nodes()
+        # if self.t>self.t_wait:       
+        #     self.remove_dead_nodes()
 
         self.B = self.logB_jax(self.obs.curr, self.mu, self.L)
         
-        new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) #, self.current_node)
-        # print(self.log_pred_prob())
-        self.pred.append(new_log_pred)
+        # new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) #, self.current_node)
+        # # print(self.log_pred_prob())
+        # self.pred.append(new_log_pred)
 
         self.update_B()
 
-        self.gamma, self.alpha, self.En, self.S1, self.S2, self.n_obs = self.update_internal_jax(self.A, self.B, self.alpha, self.last_alpha, self.En, self.eps, self.S1, self.obs.curr, self.S2, self.n_obs)
+        self.gamma, self.alpha, self.En, self.S1, self.S2, self.n_obs = self.update_internal_jax(self.A, self.B, self.alpha, self.En, self.eps, self.S1, self.obs.curr, self.S2, self.n_obs)
 
-        self.grad_Q()
-        
         self.t += 1        
 
-    # @profile
+        ## then take one grad step
+        self.grad_Q()
+        self.time_em.append(time.time()-timer)
+
+    @profile
     def update_B(self):
         
         if np.max(self.B) < self.B_thresh:
@@ -215,7 +226,8 @@ class GQDS():
                 ### Is this redundant with remove_dead_nodes() logic??      ##FIXME
                 target = np.argmin(self.n_obs)
                 # self.n_obs[target] = 0
-                print('-------------- killing a node: ', target)
+                if self.printing:
+                    print('-------------- killing a node: ', target)
 
                 n_obs = numpy.array(self.n_obs)
                 n_obs[target] = 0
@@ -227,6 +239,8 @@ class GQDS():
             node = self.teleport_node()
             ## TODO: faster if we only recompute one part and copy back?
             self.B = self.logB_jax(self.obs.curr, self.mu, self.L)
+            # newB = single_logB(self.obs.curr, self.mu[node], self.L[node])
+            # self.B = index_update(self.B, index[node], newB)
 
         self.current_node, self.B = self.expB_jax(self.B)
 
@@ -237,7 +251,7 @@ class GQDS():
         mus = vmap(get_mus, 0)(self.mu)
         self.fullSigma = (self.fullSigma_orig + self.lam[:,None,None]*self.mus_orig + self.S2 - (self.lam + self.n_obs)[:,None,None] * mus) / (self.nu + self.d + 1 + self.n_obs)[:,None,None]
 
-    # @profile
+    @profile
     def remove_dead_nodes(self):
 
         ma = (self.n_obs + self.dead_nodes_ind) < self.n_thresh
@@ -250,7 +264,8 @@ class GQDS():
             actual_ind = int(ind2)
             self.dead_nodes.append(actual_ind)
             self.dead_nodes_ind[actual_ind] = self.n_thresh
-            print('Removed dead node ', actual_ind, ' at time ', self.t)
+            if self.printing:
+                print('Removed dead node ', actual_ind, ' at time ', self.t)
             # print(self.dead_nodes)
             # print(self.dead_nodes_ind)
         # except:
@@ -282,7 +297,7 @@ class GQDS():
     #     #     print('Removed dead nodes: ', ind2)
     #         # print(self.dead_nodes)
 
-    # @profile
+    @profile
     def teleport_node(self):
         node = self.dead_nodes.pop(0)
 
@@ -308,10 +323,10 @@ class GQDS():
 
         return node
 
-    # @profile
+    @profile
     def grad_Q(self):
 
-        Q_value, (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.En, self.nu, self.n_obs, self.beta*np.ones((self.N,1)), self.mu_orig, self.fullSigma_orig, self.d*np.ones((self.N,1)), self.mus_orig, self.obs.obs_com)
+        (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.En, self.nu, self.n_obs, self.beta*np.ones((self.N,1)), self.mu_orig, self.fullSigma_orig, self.d*np.ones((self.N,1)), self.mus_orig)
         
         ## adam
         self.run_adam(grad_mu, grad_L, grad_L_diag, grad_A)
@@ -320,11 +335,11 @@ class GQDS():
 
         self.L = vmap(get_L, (0,0))(self.L_diag, self.L_lower)
        
-        self.Q_list.append(Q_value)
+        # self.Q_list.append(Q_value)
 
         self.step /= 1.001      # ?
 
-    # @profile
+    @profile
     def run_adam(self, mu, L, L_diag, A):
         ## inputs are gradients
         self.m_mu, self.v_mu, self.mu = single_adam(self.step, self.m_mu, self.v_mu, mu, self.t, self.mu)
@@ -350,7 +365,7 @@ def sm(log_A):
     return nn.softmax(log_A, axis=1)
 
 @jit
-def Q_est(mu, L, L_diag, log_A, lam, S1, S2, En, nu, n_obs, beta, mu_orig, sigma_orig, d, mus_orig, com):
+def Q_est(mu, L, L_diag, log_A, lam, S1, S2, En, nu, n_obs, beta, mu_orig, sigma_orig, d, mus_orig):
 
     N = log_A.shape[0]
     d = mu.shape[1]
@@ -415,6 +430,7 @@ def Q_j(S1, lam, sig_inv, mu, mu_orig, sigma_orig, S2, n_obs, mus, mus_orig, nu,
     return summed
 
 ## already explicitly jit-ing these..?
+@jit
 def single_logB(x, mu, L):
     # inv = np.linalg.inv(L)
     # fullSigma = inv.T @ inv
@@ -427,6 +443,7 @@ def single_logB(x, mu, L):
     B = (-1/2) * np.einsum('...i,...i->...', y, y) - (n/2) * np.log(2*np.pi) - np.log(el.diagonal()).sum()
     return B
 
+@jit
 def expB(B):
     max_Bind = np.argmax(B)
     current_node = max_Bind
@@ -434,9 +451,9 @@ def expB(B):
     B = np.exp(B)
     return current_node, B
 
-
-def update_internal(A, B, alpha, last_alpha, En, eps, S1, obs_curr, S2, n_obs):
-    gamma = B * A / (alpha.dot(A).dot(B))
+@jit
+def update_internal(A, B, last_alpha, En, eps, S1, obs_curr, S2, n_obs):
+    gamma = B * A / (last_alpha.dot(A).dot(B))
     alpha = last_alpha.dot(gamma)
     En = gamma * last_alpha[:,np.newaxis] + (1-eps) * En
     S1 = (1 - eps)*S1 + alpha[:,np.newaxis] * obs_curr
@@ -444,7 +461,7 @@ def update_internal(A, B, alpha, last_alpha, En, eps, S1, obs_curr, S2, n_obs):
     n_obs = (1 - eps)*n_obs + alpha
     return gamma, alpha, En, S1, S2, n_obs
 
-
+@jit
 def kill_dead_nodes(ind2, n_thresh, n_obs, S1, S2, En, log_A):
     N = n_obs.shape[0]
     d = S1.shape[1]
@@ -456,6 +473,27 @@ def kill_dead_nodes(ind2, n_thresh, n_obs, S1, S2, En, log_A):
     log_A = index_update(log_A, index[:,ind2], np.zeros(N))
     return n_obs, S1, S2, En, log_A
 
-
+@jit
 def log_pred_prob(B, A, alpha):
     return np.log(alpha @ A @ np.exp(B) + 1e-16)
+
+
+class Observations:
+    def __init__(self, dim, M=5):
+        self.M = M  # how many observed points to hold in memory
+        self.d = dim  # dimension of coordinate system
+
+        self.curr = None  # np.zeros(self.d)
+
+        self.saved_obs = deque(maxlen=self.M)
+        
+        self.n_obs = 0
+
+
+    def new_obs(self, coord_new):
+        self.curr = coord_new
+        
+        self.n_obs += 1
+
+        self.saved_obs.append(self.curr)
+
