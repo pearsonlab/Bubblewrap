@@ -141,6 +141,6 @@ ax.set(ylabel='time (ms)', xlabel='N={}, n={}'.format(N, n))
 ax.set(xticks=[])
 ax.axhline(33, c='k', ls='--') # 30 hz sampling?
 ax.legend()
-plt.savefig('end-to-end.pdf', bbox_inches='tight')
+plt.savefig('figcode/end-to-end.pdf', bbox_inches='tight')
 
 # %%
