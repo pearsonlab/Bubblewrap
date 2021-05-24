@@ -11,35 +11,33 @@ from scipy.integrate import solve_ivp
 from scipy.stats import multivariate_normal as mvn
 
 from field.gqds import GQDS
-from field.gqds_noBC import GQDS_NoBC
-from field.gqds_bkp import GQDS_bkp
 from datagen.diffeq import vanderpol, lorenz
 from field.utils import center_mass
 from datagen import plots
 
 from math import atan2, floor
 
-# s = np.load('jpca_reduced.npy')
-# data = s.reshape((s.shape[0]*s.shape[1], s.shape[2]))
+s = np.load('jpca_reduced.npy')
+data = s.reshape((s.shape[0]*s.shape[1], s.shape[2]))
 # data = np.load('proj_cam1.npy').T
-# T = data.shape[0]
-# d = data.shape[1]
+T = data.shape[0]
+d = data.shape[1]
 
 ## parameters
 ## TODO: change def since not meshgrid-ing?
 
-num_d = 22
-d = 3
+num_d = 2
+d = 6
 N = num_d**d
 step = 8e-2
-lam = 1e-2
-nu = 2 #1e-2   #2
+lam = 1e-3
+nu = 1e-3 # 2 #1e-2   #2
 # sigma_scale = 1e3 #1e4
 # mu_scale = 2
-eps = 0
+eps = 1e-3
 
 M = 30
-T = 300    #500 + M
+# T = 200    #500 + M
 P = 0 
 
 t_wait = 1 #M #100
@@ -52,9 +50,9 @@ batch_size = 1 #50
 gq = GQDS(N, num_d, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size)
 
 ## Get data from vdp dataset
-# s = np.load('vdp_1trajectories_2dim_500to20500_noise0.2.npz')
-s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.2.npz')
-data = s['x'][0]    # or grab 2 trajectories as example
+# s = np.load('vdp_1trajectories_2dim_500to20500_noise0.05.npz')
+# s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.2.npz')
+# data = s['y'][0]    # or grab 2 trajectories as example
 
 
 # # breakpoint()
@@ -75,7 +73,7 @@ gq.init_nodes()
 print('Nodes initialized')
 
 # Visualization
-make_movie = False
+make_movie = True
 
 if make_movie:
     ## Plotting during mesh refinement
@@ -94,7 +92,7 @@ if make_movie:
     import matplotlib.animation
     writer_class = matplotlib.animation.writers['ffmpeg']
     writer = writer_class(fps=fps, bitrate=1000)
-    writer.setup(fig, 'bubblewrap_2d_mouse.mp4')
+    writer.setup(fig, 'bubblewrap_2d_jpca.mp4')
 
 ## run online
 timer = time.time()
@@ -126,14 +124,14 @@ for i in np.arange(init, end, step):
                     el = np.linalg.inv(gq.L[n][:2,:2])
                     sig = el.T @ el
                     u,s,v = np.linalg.svd(sig)
-                    width, height = s[0]*4, s[1]*4 #*=4
+                    width, height = s[0]*9, s[1]*9 #*=4
                     # if width>1e5 or height>1e5:
                     #     pass
                     # else:
                     angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
                     # breakpoint()
                     el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
-                    el.set_alpha(0.3)
+                    el.set_alpha(0.2)
                     el.set_clip_box(axs.bbox)
                     el.set_facecolor('r')  ##ed6713')
                     axs.add_artist(el)
@@ -156,7 +154,7 @@ for i in np.arange(init, end, step):
             # plt.ylim([-25,15])
             # axs.set_zlim([-1550,0])
 
-            mask = np.ones(gq.mu.shape[0], dtype=np.bool)
+            mask = np.ones(gq.mu.shape[0], dtype=bool)
             if gq.dead_nodes:
                 mask[np.array(gq.dead_nodes)] = False
             # mask[gq.n_obs<1e-8] = False
@@ -208,14 +206,44 @@ if make_movie:
 # plt.semilogy(Q)
 
 
-# plt.figure()
-# plt.plot(np.array(gq.pred))
-# var_tmp = np.convolve(np.array(gq.pred), np.ones(500)/500, mode='valid')
-# plt.plot(var_tmp, 'k')
-# # for tt in gq.teleported_times:
-# #     plt.axvline(x=tt, color='r', lw=1)
+plt.figure()
+plt.plot(np.array(gq.pred))
+var_tmp = np.convolve(np.array(gq.pred), np.ones(500)/500, mode='valid')
+plt.plot(var_tmp, 'k')
+# for tt in gq.teleported_times:
+#     plt.axvline(x=tt, color='r', lw=1)
 
-# plt.show()
+plt.show()
+
+
+plt.figure()
+axs = plt.gca()
+axs.plot(data[:i+1+M+step,0], data[:i+1+M+step,1], color='m')
+# axs.plot(data[i+M+step-1:i+1+M+step,0], data[i+M+step-1:i+1+M+step,1], lw=2, color='b')
+for n in np.arange(N):
+    if n in gq.dead_nodes: # or (gq.n_obs[n] < 0.08):
+# #         ## don't plot dead nodes
+        pass
+    else:
+        el = np.linalg.inv(gq.L[n][:2,:2])
+        sig = el.T @ el
+        u,s,v = np.linalg.svd(sig)
+        width, height = s[0]*4, s[1]*4 #*=4
+        # if width>1e5 or height>1e5:
+        #     pass
+        # else:
+        angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
+        # breakpoint()
+        el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
+        el.set_alpha(0.2)
+        el.set_clip_box(axs.bbox)
+        el.set_facecolor('r')  ##ed6713')
+        axs.add_artist(el)
+    
+        axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
+axs.scatter(gq.mu[:,0], gq.mu[:,1], c='k' , zorder=10)
+
+plt.show()
 
 print('----------------')
 
