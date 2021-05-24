@@ -65,15 +65,9 @@ class GQDS():
         if self.batch: M=self.batch_size
         self.obs = Observations(self.d, M=M)
 
-        self.alpha = (1/self.N)*np.ones(self.N)
-
-        self.time_observe = []
-        self.time_updates = []
-        self.time_grad_Q = []
-        self.mu0_list = []
         
     def init_nodes(self):
-        ### Compute initial ss based on observed data so far
+        ### Based on observed data so far of length M
         # set initial centers of nodes distributed across space of observations
         # sl = [slice(0, self.num_d)] * self.d       
         # breakpoint()
@@ -91,9 +85,9 @@ class GQDS():
             self.obs.obs_com = com
             self.scale = 1
 
-        self.mu -= com
+        # self.mu -= com
         # self.scale *= self.mu_scale
-        self.mu *= self.scale
+        # self.mu *= self.scale
         self.mu += obs_com
 
         prior = (1/self.N)*np.ones(self.N)
@@ -106,6 +100,7 @@ class GQDS():
         self.n_obs = 0*self.alpha
 
         self.mu_orig = np.mean(self.mu, axis=0)
+        self.mus_orig = np.outer(self.mu_orig, self.mu_orig) 
 
         ### Initialize model parameters (A,En,...)
         self.A = np.ones((self.N,self.N)) - np.eye(self.N)#*0.99999
@@ -116,42 +111,29 @@ class GQDS():
         self.S1 = np.zeros((self.N,self.d))
         self.S2 = np.zeros((self.N,self.d,self.d))
 
-        self.mus_orig = np.outer(self.mu_orig, self.mu_orig) #vmap(get_mus, 0)(self.mu)
-
         self.log_A = np.zeros((self.N,self.N))
 
-
-        self.fullSigma = numpy.zeros((self.N,self.d,self.d), dtype="float32")
+        fullSigma = numpy.zeros((self.N,self.d,self.d), dtype="float32")
         self.L = numpy.zeros((self.N,self.d,self.d))
         self.L_diag = numpy.zeros((self.N,self.d))
         var = np.var(np.array(self.obs.saved_obs), axis=0)
         for n in numpy.arange(self.N):
             # self.fullSigma[n] = numpy.diagflat(self.sigma_scale*(1/self.scale)*numpy.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
-            self.fullSigma[n] = np.diag(var) * (self.nu + self.d + 1) / self.N
+            fullSigma[n] = np.diag(var) * (self.nu + self.d + 1) / self.N
             # self.fullSigma[n] = np.eye(self.d)
-        self.fullSigma_orig = self.fullSigma.copy()
 
-        ## this is important
-        # self.update_ss()       
-
-        for n in np.arange(self.N):
-            L = np.linalg.cholesky(self.fullSigma[n])
+            ## Optimization is done with L split into L_lower and L_diag elements
+            ## L is defined using cholesky of precision matrix, NOT covariance
+            L = np.linalg.cholesky(fullSigma[n])
             self.L[n] = np.linalg.inv(L).T
             self.L_diag[n] = np.log(np.diag(self.L[n]))        
-        ### NOTE: L is now defined using cholesky of precision matrix, NOT covariance!
-        self.L_lower = np.tril(self.L,-1) #np.zeros((self.N,self.d,self.d)) 
-
-        self.A_orig = self.A.copy()
-        
-        self.t = 1
+        self.L_lower = np.tril(self.L,-1)         
 
         ## Set up gradients
-        # self.grad_all = jit(grad(Q_est, argnums=(0,1,2,3)))
+        ## Change grad to value_and_grad if we want Q values
         self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,None,None)))
-        # mu, L_lower, L_diag, log_A, S1, lam, S2, n_obs, nu, En, sigma_orig, beta, d, mu_orig, mus_orig
 
-
-        ## other jitted functions
+        ## Other jitted functions
         self.logB_jax = jit(vmap(single_logB, in_axes=(None, 0, 0, 0)))
         self.expB_jax = jit(expB)
         self.update_internal_jax = jit(update_internal)
@@ -162,7 +144,6 @@ class GQDS():
         self.get_amax = jit(amax)
 
         ## for adam gradients
-        ## TODO: rewrite optimally?
         self.m_mu = np.zeros_like(self.mu)
         self.m_L = np.zeros_like(self.L_lower)
         self.m_L_diag = np.zeros_like(self.L_diag)
@@ -173,17 +154,22 @@ class GQDS():
         self.v_L_diag = np.zeros_like(self.L_diag)
         self.v_A = np.zeros_like(self.A)
 
-        self.dead_nodes = [] #np.arange(0,self.N).tolist()
-        self.dead_nodes_ind = 0*self.n_thresh*numpy.ones(self.N)
-        self.current_node = 0   #?
+        ## Variables for keeping track of dead nodes
+        self.dead_nodes = np.arange(0,self.N).tolist()
+        self.dead_nodes_ind = self.n_thresh*numpy.ones(self.N)
+        self.current_node = 0 
     
-        ## variables for tracking progress
+        ## Variables for tracking progress
         self.pred = []
         self.teleported_times = []
         self.time_em = []
-
+        self.time_observe = []
+        self.time_updates = []
+        self.time_grad_Q = []
+        ## If we use value_and_grad above to look at Q over time
         self.Q_list = []
-        self.A_diff = []
+
+        self.t = 1
 
 
     # @profile
@@ -198,11 +184,11 @@ class GQDS():
         self.sigma_orig = self.obs.cov 
         if self.sigma_orig is not None:
             self.mu_orig = self.obs.mean #0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=0.01*np.sqrt(np.diagonal(self.obs.cov)))
-            self.mu0_list.append(self.mu_orig)
-            self.mus_orig = np.outer(self.mu_orig, self.mu_orig)
+            # self.mu0_list.append(self.mu_orig)
+            self.mus_orig = get_mus(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
 
             try:
-                self.sigma_orig *= (self.nu + self.d + 1) / self.N
+                self.sigma_orig *= (self.nu + self.d + 1) / (self.N**(2/self.d))
             except:
                 breakpoint()
         # self.time_observe.append(time.time()-timer)
@@ -240,14 +226,8 @@ class GQDS():
     # @profile
     def update_B(self):
         
-        # mask = (self.B < self.B_thresh)  
-        # mm = np.nanmax(mask)      
-
-        bm = numpy.max(self.B)
-
-        if bm < self.B_thresh:
+        if numpy.max(self.B) < self.B_thresh:
             if not (self.dead_nodes):
-                ## got to kill a node!
                 ### Is this redundant with remove_dead_nodes() logic??      ##FIXME
                 target = numpy.argmin(self.n_obs)
                 # self.n_obs[target] = 0
@@ -260,12 +240,8 @@ class GQDS():
 
                 self.remove_dead_nodes()
 
-            ## if we have any free nodes and no node is nearby this datapoint
             node = self.teleport_node()
-            ## TODO: faster if we only recompute one part and copy back?
             self.B = self.logB_jax(self.obs.curr, self.mu, self.L, self.L_diag)
-            # newB = single_logB(self.obs.curr, self.mu[node], self.L[node])
-            # self.B = index_update(self.B, index[node], newB)
 
         self.current_node, self.B = self.expB_jax(self.B)
 
@@ -325,12 +301,6 @@ class GQDS():
     # @profile
     def teleport_node(self):
         node = self.dead_nodes.pop(0)
-
-        # mu_update = (self.lam[node] * self.obs.curr + self.S1[node]) / (self.lam[node] + self.n_obs[node])
-
-        # self.mu[node] = self.obs.curr
-        # mu_update = self.obs.curr
-        # self.mu = index_update(self.mu, index[node], mu_update) #self.obs.curr)
         
         mu = numpy.array(self.mu)
         mu[node] = self.obs.curr
@@ -356,17 +326,13 @@ class GQDS():
         # mu, L_lower, L_diag, log_A, S1, lam, sigma_orig, S2, n_obs, nu, En, beta, d
         (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(self.mu, self.L_lower, self.L_diag, self.log_A, self.S1, self.lam, self.S2, self.n_obs, self.En, self.nu, self.sigma_orig, self.beta, self.d, self.mu_orig, self.mus_orig)
 
-        ## adam
         self.run_adam(grad_mu/divisor, grad_L/divisor, grad_L_diag/divisor, grad_A/divisor)
         
         self.A = sm(self.log_A)
 
-        ##########3 eliminate?
         self.L = self.compute_L(self.L_diag, self.L_lower) #vmap(get_L, (0,0))(self.L_diag, self.L_lower)
        
         # self.Q_list.append(Q_value)
-
-        self.step /= 1.001      # ?
 
     ################################ write as optimizer from jax?
     # @profile
@@ -376,6 +342,7 @@ class GQDS():
         self.m_L, self.v_L, self.L_lower = single_adam(self.step, self.m_L, self.v_L, L, self.t, self.L_lower)
         self.m_L_diag, self.v_L_diag, self.L_diag = single_adam(self.step, self.m_L_diag, self.v_L_diag, L_diag, self.t, self.L_diag)
         self.m_A, self.v_A, self.log_A = single_adam(self.step, self.m_A, self.v_A, A, self.t, self.log_A)
+
 
 beta1 = 0.99
 beta2 = 0.999
@@ -542,7 +509,7 @@ class Observations:
         
         self.n_obs = 0
 
-
+    # @profile
     def new_obs(self, coord_new):
         self.curr = coord_new
         self.saved_obs.append(self.curr)
@@ -552,7 +519,8 @@ class Observations:
             self.mean = self.curr.copy()
         else:
             self.last_mean = self.mean.copy()
-            self.mean += (self.curr - self.mean)/self.n_obs
+            # self.mean += (self.curr - self.mean)/self.n_obs
+            self.mean = update_mean(self.mean, self.curr, self.n_obs)
 
         if self.n_obs > 2:
             # breakpoint()
@@ -560,7 +528,19 @@ class Observations:
                 self.cov = np.cov(np.array(self.saved_obs).T, bias=True)
             else:
                 # self.last_cov = self.cov
-                f = (self.n_obs - 1) / self.n_obs
-                self.cov = f*(self.cov + np.outer(self.last_mean, self.last_mean)) + (1-f)*np.outer(self.curr, self.curr) - np.outer(self.mean, self.mean)
-            # print(self.cov)
+                # f = (self.n_obs - 1) / self.n_obs
+                # self.cov = f*(self.cov + np.outer(self.last_mean, self.last_mean)) + (1-f)*np.outer(self.curr, self.curr) - np.outer(self.mean, self.mean)
+                self.cov = update_cov(self.cov, self.last_mean, self.curr, self.mean, self.n_obs)
 
+
+@jit 
+def update_mean(mean, curr, n_obs):
+    return mean + (curr - mean)/n_obs
+
+@jit
+def update_cov(cov, last, curr, mean, n):
+    lastm = get_mus(last)
+    currm = get_mus(mean)
+    curro = get_mus(curr)
+    f = (n-1)/n
+    return f*(cov + lastm) + (1-f)*curro - currm
