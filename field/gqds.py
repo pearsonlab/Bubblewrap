@@ -37,29 +37,29 @@ epsilon = 1e-10
 ## Working title: 'Graph quantized dynamical systems' (gqds) --> need to rename to Bubblewrap TODO
 
 class GQDS():
-    def __init__(self, num, num_d, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1):
+    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1, mu_diff=1e-2):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
-        self.step = step
         self.lam_0 = lam
-        self.nu_0 = nu
+        self.nu = nu
+        
         self.eps = eps
         self.B_thresh = B_thresh
         self.n_thresh = n_thresh
         self.t_wait = t_wait
-        self.num_d = num_d
+        self.step = step
+        self.mu_diff = mu_diff
+
         self.batch = batch
-        self.nu = nu
         self.batch_size = batch_size
         if not self.batch: self.batch_size = 1
 
         ## TODO: setup proper logging
         self.printing = True
         
-        ## not actually used
         self.key = random.PRNGKey(self.seed)
-        # np.random.seed(self.seed)
+        numpy.random.seed(self.seed)
 
         # observations of the data; M is how many to keep in history
         if self.batch: M=self.batch_size
@@ -106,10 +106,13 @@ class GQDS():
         fullSigma = numpy.zeros((self.N,self.d,self.d), dtype="float32")
         self.L = numpy.zeros((self.N,self.d,self.d))
         self.L_diag = numpy.zeros((self.N,self.d))
-        var = np.var(np.array(self.obs.saved_obs), axis=0)
+        if self.batch:
+            var = self.obs.cov
+        else:
+            var = np.diag(np.var(np.array(self.obs.saved_obs), axis=0))
         for n in numpy.arange(self.N):
             # self.fullSigma[n] = numpy.diagflat(self.sigma_scale*(1/self.scale)*numpy.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
-            fullSigma[n] = np.diag(var) * (self.nu + self.d + 1) / self.N
+            fullSigma[n] = var * (self.nu + self.d + 1) / (self.N**(2/self.d))
             # self.fullSigma[n] = np.eye(self.d)
 
             ## Optimization is done with L split into L_lower and L_diag elements
@@ -166,34 +169,41 @@ class GQDS():
     # @profile
     def observe(self, x):
         # Get new data point and update observation history
-        # if self.batch:
-        #     for o in x: # x array of obsevations
-        #         self.obs.new_obs(o)
-        # # timer = time.time()
-        # else:
-        self.obs.new_obs(x)
+
+        ## Do all observations, and then update mu0, sigma0
+        if self.batch:
+            for o in x: # x array of obsevations
+                self.obs.new_obs(o)
+        # timer = time.time()
+        else:
+            self.obs.new_obs(x)
+
         self.sigma_orig = self.obs.cov 
         if self.sigma_orig is not None:
-            self.mu_orig = 0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=0.05*np.sqrt(np.diagonal(self.obs.cov)))
+            self.mu_orig = 0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=self.mu_diff*np.sqrt(np.diagonal(self.obs.cov)))
             # self.mu0_list.append(self.mu_orig)
             self.mus_orig = get_mus(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
-
-            try:
-                self.sigma_orig *= (self.nu + self.d + 1) / (self.N**(2/self.d))
-            except:
-                breakpoint()
+            self.sigma_orig *= (self.nu + self.d + 1) / (self.N**(2/self.d))
+         
         # self.time_observe.append(time.time()-timer)
 
     # @profile
     def em_step(self):
         # take step in E and M; after observation
-        # if batch:
-        timer=time.time()
-        # for o in self.obs.saved_obs:        # this is 1 if batch False
+        # timer=time.time()
             
+        if self.batch:
+            for o in self.obs.saved_obs:
+                self.single_em_step(o)
+        else:
+            self.single_em_step(self.obs.curr)
+
+    # @profile
+    def single_em_step(self, x):
+
         self.beta = 1 + 10/(self.t+1)
 
-        self.B = self.logB_jax(self.obs.curr, self.mu, self.L, self.L_diag)
+        self.B = self.logB_jax(x, self.mu, self.L, self.L_diag)
         
         ### Compute log predictive probability and entropy; turn off for faster code 
         new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) #, self.current_node)
@@ -201,18 +211,14 @@ class GQDS():
         ent = entropy(self.A, self.alpha)
         self.entropy_list.append(ent)
 
-        self.update_B()
+        self.update_B(x)
 
-        self.gamma, self.alpha, self.En, self.S1, self.S2, self.n_obs = self.update_internal_jax(self.A, self.B, self.alpha, self.En, self.eps, self.S1, self.obs.curr, self.S2, self.n_obs)
-
-        self.t += 1        
-
-        ## then take one grad step
-        self.grad_Q()
-        self.time_em.append(time.time()-timer)
+        self.gamma, self.alpha, self.En, self.S1, self.S2, self.n_obs = self.update_internal_jax(self.A, self.B, self.alpha, self.En, self.eps, self.S1, x, self.S2, self.n_obs)
+        
+        self.t += 1     
 
     # @profile
-    def update_B(self):
+    def update_B(self, x):
         
         if numpy.max(self.B) < self.B_thresh:
             if not (self.dead_nodes):
@@ -227,8 +233,8 @@ class GQDS():
 
                 self.remove_dead_nodes()
 
-            node = self.teleport_node()
-            self.B = self.logB_jax(self.obs.curr, self.mu, self.L, self.L_diag)
+            node = self.teleport_node(x)
+            self.B = self.logB_jax(x, self.mu, self.L, self.L_diag)
 
         self.current_node, self.B = self.expB_jax(self.B)
 
@@ -250,11 +256,11 @@ class GQDS():
             
 
     # @profile
-    def teleport_node(self):
+    def teleport_node(self, x):
         node = self.dead_nodes.pop(0)
         
         mu = numpy.array(self.mu)
-        mu[node] = self.obs.curr
+        mu[node] = x
         self.mu = mu
 
         alpha = numpy.array(self.alpha)
@@ -380,7 +386,7 @@ def expB(B):
 
 @jit
 def update_internal(A, B, last_alpha, En, eps, S1, obs_curr, S2, n_obs):
-    gamma = B * A / (last_alpha.dot(A).dot(B))
+    gamma = B * A / (last_alpha.dot(A).dot(B) + 1e-16)
     alpha = last_alpha.dot(gamma)
     En = gamma * last_alpha[:,np.newaxis] + (1-eps) * En
     S1 = (1 - eps)*S1 + alpha[:,np.newaxis] * obs_curr

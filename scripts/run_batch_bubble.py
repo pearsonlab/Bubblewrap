@@ -26,30 +26,28 @@ d = data.shape[1]       # should be 2
 ## Bubblewrap parameters
 # num_d = 10
 # d = 6
-N = 10**d #num_d**d
+N = 100**d #num_d**d
 lam = 1e-3
 nu = 1e-3 
 eps = 1e-3
 
-step = 8e-1
+step = 8e-2
 
-M = 30
-# T = 300    #500 + M
-
-t_wait = 1 #M #100
-B_thresh = -10 #5.8
+t_wait = 1 
+B_thresh = -10 
 n_thresh = 5e-4
 
-mu_diff = 0.01
+mu_diff = 0.021
 
-batch = False
-batch_size = 1 #50
+batch = True
+batch_size = 10
+M = 30
 
 gq = GQDS(N, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size, mu_diff=mu_diff)
 
 ## initialize things
-for i in np.arange(0,M): #,batch_size):
-    gq.observe(data[i]) #:i+batch_size])
+for i in np.arange(0,M,batch_size):
+    gq.observe(data[i:i+batch_size])
 
 gq.init_nodes()
 print('Nodes initialized')
@@ -78,22 +76,31 @@ if make_movie:
 
 ## run online
 timer = time.time()
-times = []
+times_em = []
 times_obs = []
+times_Q = []
 
 init = -M
 end = T-M
 step = batch_size
 
 for i in np.arange(init, end, step):
-    # print(i)
+
+    ## observe data in batches
     t1 = time.time()
-    gq.observe(data[i+M])
-    times_obs.append(time.time()-t1)
+    gq.observe(data[i+M:i+M+step])
+    times_obs.append((time.time()-t1)/step)
+
+    ## then run em step for all data
+    # for b in np.arange(step):
     t2 = time.time()
-    gq.em_step()    
-    gq.grad_Q()
-    times.append(time.time()-t2)    
+    gq.em_step()
+    times_em.append((time.time()-t2)/step) 
+    
+    ## take single gradient step per batch
+    t3 = time.time()
+    gq.grad_Q()   
+    times_Q.append((time.time()-t3)/step)    
 
     if make_movie:
         if True: #i < 200 or i > 300:
@@ -169,8 +176,9 @@ for i in np.arange(init, end, step):
         print(i+M, 'frames processed. Time elapsed ', time.time()-timer)
 
 print('Done fitting all data online')
-print('Average cycle time: ', np.mean(np.array(times)[20:]))
-print('Average observation time: ', np.mean(np.array(times_obs)[20:]))
+print('Average em time: ', np.mean(np.array(times_em)[10:]))
+print('Average Q time: ', np.mean(np.array(times_Q)[10:]))
+print('Average observation time: ', np.mean(np.array(times_obs)[10:]))
 # print('Average prediction time: ', np.mean(np.array(gq.time_pred)[20:]))
 
 
@@ -179,22 +187,22 @@ if make_movie:
 
 ## plotting
 
-plt.figure()
-plt.plot(np.array(gq.pred))
-var_tmp = np.convolve(np.array(gq.pred), np.ones(500)/500, mode='valid')
-plt.plot(var_tmp, 'k')
-# for tt in gq.teleported_times:
-#     plt.axvline(x=tt, color='r', lw=1)
+# plt.figure()
+# plt.plot(np.array(gq.pred))
+# var_tmp = np.convolve(np.array(gq.pred), np.ones(500)/500, mode='valid')
+# plt.plot(var_tmp, 'k')
+# # for tt in gq.teleported_times:
+# #     plt.axvline(x=tt, color='r', lw=1)
 
-# plt.show()
+# # plt.show()
 
-plt.figure()
-plt.plot(np.array(gq.entropy_list))
-plt.hlines(np.log2(N), 0, T, 'k', '--')
+# plt.figure()
+# plt.plot(np.array(gq.entropy_list))
+# plt.hlines(np.log2(N), 0, T, 'k', '--')
 
 plt.figure()
 axs = plt.gca()
-axs.plot(data[:i+1+M+step,0], data[:i+1+M+step,1], color='gray', alpha=0.8)
+axs.scatter(data[:i+1+M+step,0], data[:i+1+M+step,1], color='m')
 # axs.plot(data[i+M+step-1:i+1+M+step,0], data[i+M+step-1:i+1+M+step,1], lw=2, color='b')
 for n in np.arange(N):
     if n in gq.dead_nodes: # or (gq.n_obs[n] < 0.08):
