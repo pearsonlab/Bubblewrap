@@ -17,27 +17,24 @@ from datagen import plots
 
 from math import atan2, floor
 
-s = np.load('jpca_reduced.npy')
-data = s.reshape((s.shape[0]*s.shape[1], s.shape[2]))
-# data = np.load('proj_cam1.npy').T
-T = data.shape[0]
-d = data.shape[1]
+## Load data from datagen/datagen.py vdp
+s = np.load('vdp_1trajectories_2dim_500to20500_noise0.05.npz')
+data = s['y'][0]
+T = data.shape[0]       # should be 20k
+d = data.shape[1]       # should be 2
 
-## parameters
-## TODO: change def since not meshgrid-ing?
-
-num_d = 2
-d = 6
+## Bubblewrap parameters
+num_d = 10
+# d = 6
 N = num_d**d
-step = 8e-2
 lam = 1e-3
-nu = 1e-3 # 2 #1e-2   #2
-# sigma_scale = 1e3 #1e4
-# mu_scale = 2
+nu = 1e-3 
 eps = 1e-3
 
+step = 8e-1
+
 M = 30
-# T = 200    #500 + M
+# T = 300    #500 + M
 P = 0 
 
 t_wait = 1 #M #100
@@ -73,7 +70,7 @@ gq.init_nodes()
 print('Nodes initialized')
 
 # Visualization
-make_movie = True
+make_movie = False
 
 if make_movie:
     ## Plotting during mesh refinement
@@ -115,7 +112,7 @@ for i in np.arange(init, end, step):
     if make_movie:
         if True: #i < 200 or i > 300:
             # plots.plot3d_color(data[:i+1+M], t[:i+1+M], axs, alpha=1) #, cmap='PuBu')
-            axs.plot(data[:i+1+M+step,0], data[:i+1+M+step,1], lw=2)
+            axs.scatter(data[:i+1+M+step,0], data[:i+1+M+step,1], color='b', alpha=0.6)
             for n in np.arange(N):
                 if n in gq.dead_nodes: # or (gq.n_obs[n] < 0.08):
             # #         ## don't plot dead nodes
@@ -124,7 +121,7 @@ for i in np.arange(init, end, step):
                     el = np.linalg.inv(gq.L[n][:2,:2])
                     sig = el.T @ el
                     u,s,v = np.linalg.svd(sig)
-                    width, height = s[0]*9, s[1]*9 #*=4
+                    width, height = np.sqrt(s[0]*1), np.sqrt(s[1]*1) #*=4
                     # if width>1e5 or height>1e5:
                     #     pass
                     # else:
@@ -213,12 +210,15 @@ plt.plot(var_tmp, 'k')
 # for tt in gq.teleported_times:
 #     plt.axvline(x=tt, color='r', lw=1)
 
-plt.show()
+# plt.show()
 
+plt.figure()
+plt.plot(np.array(gq.entropy_list))
+plt.hlines(np.log2(N), 0, T, 'k', '--')
 
 plt.figure()
 axs = plt.gca()
-axs.plot(data[:i+1+M+step,0], data[:i+1+M+step,1], color='m')
+axs.scatter(data[:i+1+M+step,0], data[:i+1+M+step,1], color='m')
 # axs.plot(data[i+M+step-1:i+1+M+step,0], data[i+M+step-1:i+1+M+step,1], lw=2, color='b')
 for n in np.arange(N):
     if n in gq.dead_nodes: # or (gq.n_obs[n] < 0.08):
@@ -228,7 +228,7 @@ for n in np.arange(N):
         el = np.linalg.inv(gq.L[n][:2,:2])
         sig = el.T @ el
         u,s,v = np.linalg.svd(sig)
-        width, height = s[0]*4, s[1]*4 #*=4
+        width, height = np.sqrt(s[0]*9), np.sqrt(s[1]*9) #*=4
         # if width>1e5 or height>1e5:
         #     pass
         # else:
@@ -240,7 +240,12 @@ for n in np.arange(N):
         el.set_facecolor('r')  ##ed6713')
         axs.add_artist(el)
     
-        axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
+        # axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
+
+mask = np.ones(gq.mu.shape[0], dtype=bool)
+if gq.dead_nodes:
+    mask[np.array(gq.dead_nodes)] = False
+    mask[gq.n_obs<1e-4] = False
 axs.scatter(gq.mu[:,0], gq.mu[:,1], c='k' , zorder=10)
 
 plt.show()

@@ -243,9 +243,7 @@ for n in np.arange(N):
         axs.add_artist(el)
     
         # axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
-mask = np.ones(gq.mu.shape[0], dtype=bool)
-if gq.dead_nodes:
-    mask[np.array(gq.dead_nodes)] = False
+
 
 
 plt.ylim([-5,5])

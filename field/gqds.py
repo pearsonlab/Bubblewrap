@@ -68,26 +68,18 @@ class GQDS():
         
     def init_nodes(self):
         ### Based on observed data so far of length M
-        # set initial centers of nodes distributed across space of observations
-        # sl = [slice(0, self.num_d)] * self.d       
-        # breakpoint()
-        # self.mu = np.array(np.meshgrid(*[np.linspace(0,self.num_d,self.num_d)]*self.d, sparse=False)).reshape((self.d, self.N)).T
+        
         self.mu = np.zeros((self.N, self.d))
 
         com = center_mass(self.mu)
         if len(self.obs.saved_obs) > 1:
             obs_com = center_mass(self.obs.saved_obs)
-            self.scale = np.max(np.abs(self.obs.saved_obs - obs_com))*2  / self.num_d
         else:
             ## this section for if we init mesh with no data
             obs_com = 0
             self.obs.curr = com
             self.obs.obs_com = com
-            self.scale = 1
 
-        # self.mu -= com
-        # self.scale *= self.mu_scale
-        # self.mu *= self.scale
         self.mu += obs_com
 
         prior = (1/self.N)*np.ones(self.N)
@@ -95,8 +87,6 @@ class GQDS():
         self.alpha = self.lam_0 * prior
         self.last_alpha = self.alpha.copy()
         self.lam = self.lam_0 * prior 
-        # self.nu = self.nu_0 * (1/self.N#prior
-
         self.n_obs = 0*self.alpha
 
         self.mu_orig = np.mean(self.mu, axis=0)
@@ -166,6 +156,7 @@ class GQDS():
         self.time_observe = []
         self.time_updates = []
         self.time_grad_Q = []
+        self.entropy_list = []
         ## If we use value_and_grad above to look at Q over time
         self.Q_list = []
 
@@ -199,19 +190,16 @@ class GQDS():
         # if batch:
         timer=time.time()
         # for o in self.obs.saved_obs:        # this is 1 if batch False
-            # timer = time.time()
-            # self.last_alpha = self.alpha.copy()
-            # self.obs.curr = o
+            
         self.beta = 1 + 10/(self.t+1)
-
-        # if self.t>self.t_wait:       
-        #     self.remove_dead_nodes()
 
         self.B = self.logB_jax(self.obs.curr, self.mu, self.L, self.L_diag)
         
+        ### Compute log predictive probability and entropy; turn off for faster code 
         new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) #, self.current_node)
-        # print(self.log_pred_prob())
         self.pred.append(new_log_pred)
+        ent = entropy(self.A, self.alpha)
+        self.entropy_list.append(ent)
 
         self.update_B()
 
@@ -228,9 +216,8 @@ class GQDS():
         
         if numpy.max(self.B) < self.B_thresh:
             if not (self.dead_nodes):
-                ### Is this redundant with remove_dead_nodes() logic??      ##FIXME
                 target = numpy.argmin(self.n_obs)
-                # self.n_obs[target] = 0
+
                 if self.printing:
                     print('-------------- killing a node: ', target)
 
@@ -251,7 +238,7 @@ class GQDS():
         ma = (self.n_obs + self.dead_nodes_ind) < self.n_thresh
 
         if ma.any():
-            ind2 = self.get_amax(ma) #np.argmax(ma)
+            ind2 = self.get_amax(ma) #numpy.argmax(ma)  ?
         
             # try:
             self.n_obs, self.S1, self.S2, self.En, self.log_A = self.kill_nodes(ind2, self.n_thresh, self.n_obs, self.S1, self.S2, self.En, self.log_A)
@@ -260,36 +247,7 @@ class GQDS():
             self.dead_nodes_ind[actual_ind] = self.n_thresh
             if self.printing:
                 print('Removed dead node ', actual_ind, ' at time ', self.t)
-            # print(self.dead_nodes)
-            # print(self.dead_nodes_ind)
-        # except:
-        #     breakpoint()
-        # #     print('oops')
-
-    #     ## if any nodes n_obs<thresh, remove
-    #     aw = numpy.argwhere(self.n_obs < self.n_thresh)
-    #     aw = aw.flat
-    #     ind = set(aw)
-    #     # try:
-    #     #     ind2 = [i for i in ind if i not in self.dead_nodes]
-    #     # except:
-    #     #     breakpoint()
-    #     # if ind2:
-    #     ind2 = ind - self.dead_nodes
-    #     self.dead_nodes.update(ind2)
-    #     # s = len(ind2)
-    #     # breakpoint()
-    #     for n_i in ind2:
-    #         self.log_A = index_update(self.log_A, index[n_i], np.zeros(self.N))
-    #         self.log_A = index_update(self.log_A, index[:,n_i], np.zeros(self.N))
-    #     # update = np.zeros_like(self.log_A)
-    #     # a = numpy.array(self.log_A)
-    #     # a[tuple(ind2), :] = 0
-    #     # a[:, tuple(ind2)] = 0
-    #     # self.log_A = a #self.log_A - update
-    #     # if self.printing:
-    #     #     print('Removed dead nodes: ', ind2)
-    #         # print(self.dead_nodes)
+            
 
     # @profile
     def teleport_node(self):
@@ -327,7 +285,6 @@ class GQDS():
        
         # self.Q_list.append(Q_value)
 
-    ################################ write as optimizer from jax?
     # @profile
     def run_adam(self, mu, L, L_diag, A):
         ## inputs are gradients
@@ -339,6 +296,9 @@ class GQDS():
 
 beta1 = 0.99
 beta2 = 0.999
+
+
+### A ton of jitted functions for fast code execution
 
 @jit
 def single_adam(step, m, v, grad, t, val):
@@ -361,38 +321,6 @@ def sum_me(En):
 @jit
 def amax(A):
     return np.argmax(A)
-
-###############################################
-#####   Try jit(grad) of single one, then vmap? or jit(vmap(grad?))
-###############################################
-
-@jit
-def Q_est(mu, L, L_diag, log_A, lam, S1, S2, En, nu, n_obs, beta, mu_orig, sigma_orig, d, mus_orig):
-
-    N = log_A.shape[0]
-    # d = mu.shape[1]
-    t = 1+np.sum(En)
-
-    ## is this even faster? yes
-    el = vmap(get_L, (0,0))(L_diag,L)
-    sig_inv = vmap(get_sig_inv, 0)(el)
-    mus = vmap(get_mus, 0)(mu)
-    ld = vmap(get_ld, 0)(L_diag)
-
-    # summed = 0
-    # for j in jnp.arange(N):
-
-    #     # ld = -2 * jnp.sum(L_diag[j])
-    #     # mus = jnp.outer(mu[j], mu[j])
-
-    #     summed += (S1[j] ).dot(sig_inv[j]).dot(mu[j]) 
-    #     summed += (-1/2) * jnp.trace( (sigma_orig[j] + S2[j] + (n_obs[j]) * mus[j]) @ sig_inv[j] ) 
-    #     summed += (-1/2) * (nu[j] + n_obs[j] + d + 2) * ld[j]
-    #     summed += jnp.sum((En[j] + beta - 1) * nn.log_softmax(log_A[j])) 
-
-    summed = vmap(Q_j, 0)(S1, lam, sig_inv, mu, mu_orig, sigma_orig, S2, n_obs, mus, mus_orig, nu, ld, En, log_A, beta, d)
-
-    return -np.sum(summed)/t 
 
 @jit
 def get_L(x, y):
@@ -436,18 +364,9 @@ def Q_j(mu, L_lower, L_diag, log_A, S1, lam, S2, n_obs, En, nu, sigma_orig, beta
     summed += np.sum((En + beta - 1) * nn.log_softmax(log_A)) 
     return -np.sum(summed)
 
-## already explicitly jit-ing these..?
 @jit
 def single_logB(x, mu, L, L_diag):
-    # inv = np.linalg.inv(L)
-    # fullSigma = inv.T @ inv
-    # B = jmvn.logpdf(x, mu, fullSigma)
-
-    ## from jax github to improve logpdf of mvn
     n = mu.shape[0]
-    # el = np.linalg.inv(L).T
-    # y = triangular_solve(el, x-mu, lower=True, transpose_a=True)
-    # B = (-1/2) * np.einsum('...i,...i->...', y, y) - (n/2) * np.log(2*np.pi) - np.log(el.diagonal()).sum()
     B = (-1/2) * np.linalg.norm((x-mu)@L)**2  - (n/2) * np.log(2*np.pi) + np.sum(L_diag)
     return B
 
@@ -485,6 +404,10 @@ def kill_dead_nodes(ind2, n_thresh, n_obs, S1, S2, En, log_A):
 def log_pred_prob(B, A, alpha):
     return np.log(alpha @ A @ np.exp(B) + 1e-16)
 
+@jit
+def entropy(A, alpha):
+    one = alpha @ A
+    return - np.sum(one.dot(np.log2(alpha @ A)))
 
 class Observations:
     def __init__(self, dim, M=5):
