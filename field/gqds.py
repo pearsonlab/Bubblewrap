@@ -155,8 +155,8 @@ class GQDS():
         self.v_A = np.zeros_like(self.A)
 
         ## Variables for keeping track of dead nodes
-        self.dead_nodes = np.arange(0,self.N).tolist()
-        self.dead_nodes_ind = self.n_thresh*numpy.ones(self.N)
+        self.dead_nodes = [] # np.arange(0,self.N).tolist()
+        self.dead_nodes_ind = 0*self.n_thresh*numpy.ones(self.N)
         self.current_node = 0 
     
         ## Variables for tracking progress
@@ -183,7 +183,7 @@ class GQDS():
         self.obs.new_obs(x)
         self.sigma_orig = self.obs.cov 
         if self.sigma_orig is not None:
-            self.mu_orig = self.obs.mean #0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=0.01*np.sqrt(np.diagonal(self.obs.cov)))
+            self.mu_orig = 0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=0.05*np.sqrt(np.diagonal(self.obs.cov)))
             # self.mu0_list.append(self.mu_orig)
             self.mus_orig = get_mus(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
 
@@ -244,13 +244,6 @@ class GQDS():
             self.B = self.logB_jax(self.obs.curr, self.mu, self.L, self.L_diag)
 
         self.current_node, self.B = self.expB_jax(self.B)
-
-    def update_ss(self):
-        # Update sufficient statistics
-
-        self.mu = (self.lam[:,None] * self.mu_orig + self.S1) / (self.lam + self.n_obs)[:,None]
-        mus = vmap(get_mus, 0)(self.mu)
-        self.fullSigma = (self.fullSigma_orig + self.lam[:,None,None]*self.mus_orig + self.S2 - (self.lam + self.n_obs)[:,None,None] * mus) / (self.nu + self.d + 1 + self.n_obs)[:,None,None]
 
     # @profile
     def remove_dead_nodes(self):

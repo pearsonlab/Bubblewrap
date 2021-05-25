@@ -19,6 +19,7 @@ from math import atan2, floor
 
 s = np.load('jpca_reduced.npy')
 data = s.reshape((s.shape[0]*s.shape[1], s.shape[2]))
+# data = np.vstack((data, data, data, data))
 T = data.shape[0]
 d = data.shape[1]
 
@@ -27,10 +28,10 @@ d = data.shape[1]
 num_d = 2
 # d = 6
 N = num_d**d
-step = 8e-2
+step = 8e-1
 lam = 1e-3
 nu = 1e-3 
-eps = 1e-3
+eps = 0 #1e-3
 
 M = 60
 # T = 300    #500 + M
@@ -104,7 +105,7 @@ for i in np.arange(init, end, step):
                     el = np.linalg.inv(gq.L[n][:2,:2])
                     sig = el.T @ el
                     u,s,v = np.linalg.svd(sig)
-                    width, height = s[0]*1, s[1]*1 #*=4
+                    width, height = np.sqrt(s[0]*9), np.sqrt(s[1]*9) #*=4
                     # if width>1e5 or height>1e5:
                     #     pass
                     # else:
@@ -165,6 +166,7 @@ for i in np.arange(init, end, step):
     if (i+M) % 50 == 0  and i>0:
         print(i+M, 'frames processed. Time elapsed ', time.time()-timer)
 
+
 print('Done fitting all data online')
 print('Average cycle time: ', np.mean(np.array(times)[20:]))
 print('Average observation time: ', np.mean(np.array(times_obs)[20:]))
@@ -182,7 +184,7 @@ plt.plot(var_tmp, 'k')
 # for tt in gq.teleported_times:
 #     plt.axvline(x=tt, color='r', lw=1)
 
-plt.show()
+# plt.show()
 
 
 plt.figure()
@@ -190,14 +192,14 @@ axs = plt.gca()
 axs.scatter(data[:i+1+M+step,0], data[:i+1+M+step,1], color='m')
 # axs.plot(data[i+M+step-1:i+1+M+step,0], data[i+M+step-1:i+1+M+step,1], lw=2, color='b')
 for n in np.arange(N):
-    if n in gq.dead_nodes: # or (gq.n_obs[n] < 0.08):
+    if n in gq.dead_nodes or (gq.n_obs[n] < 0.1):
 # #         ## don't plot dead nodes
         pass
     else:
         el = np.linalg.inv(gq.L[n][:2,:2])
         sig = el.T @ el
         u,s,v = np.linalg.svd(sig)
-        width, height = s[0]*9, s[1]*9 #*=4
+        width, height = np.sqrt(s[0]*9), np.sqrt(s[1]*9) #*=4
         # if width>1e5 or height>1e5:
         #     pass
         # else:
@@ -209,11 +211,45 @@ for n in np.arange(N):
         el.set_facecolor('r')  ##ed6713')
         axs.add_artist(el)
     
-        axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
+        # axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
 mask = np.ones(gq.mu.shape[0], dtype=bool)
 if gq.dead_nodes:
     mask[np.array(gq.dead_nodes)] = False
 axs.scatter(gq.mu[mask,0], gq.mu[mask,1], c='k' , zorder=10)
+
+
+plt.figure()
+axs = plt.gca()
+# axs.scatter(data[:i+1+M+step,0], data[:i+1+M+step,1], color='m')
+# axs.plot(data[i+M+step-1:i+1+M+step,0], data[i+M+step-1:i+1+M+step,1], lw=2, color='b')
+for n in np.arange(N):
+    if n in gq.dead_nodes or (gq.n_obs[n] < 0.1):
+# #         ## don't plot dead nodes
+        pass
+    else:
+        el = np.linalg.inv(gq.L[n][:2,:2])
+        sig = el.T @ el
+        u,s,v = np.linalg.svd(sig)
+        width, height = np.sqrt(s[0]*9), np.sqrt(s[1]*9) #*=4
+        # if width>1e5 or height>1e5:
+        #     pass
+        # else:
+        angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
+        # breakpoint()
+        el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
+        el.set_alpha(0.2)
+        el.set_clip_box(axs.bbox)
+        el.set_facecolor('r')  ##ed6713')
+        axs.add_artist(el)
+    
+        # axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
+mask = np.ones(gq.mu.shape[0], dtype=bool)
+if gq.dead_nodes:
+    mask[np.array(gq.dead_nodes)] = False
+
+
+plt.ylim([-5,5])
+plt.xlim([-5,5])
 
 plt.show()
 
