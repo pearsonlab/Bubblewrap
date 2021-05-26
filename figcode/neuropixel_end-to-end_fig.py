@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from sklearn import random_projection as rp
-import streamingSVD.proSVD as proSVD
+from proSVD import proSVD
 from field.gqds import GQDS
 
 #%% reduction functions
@@ -61,7 +61,7 @@ rp_times_std = np.array(times).std() * 1000 / np.sqrt(iters-1)
 #%%
 l = 1 # one vector at a time
 # ssSVD
-pro = proSVD.proSVD(svd_dim, trueSVD=False, history=0)
+pro = proSVD(svd_dim, trueSVD=False, history=0)
 pro.initialize(X_rp[:, :k])
 times = []
 for i in range(iters):
@@ -141,6 +141,4 @@ ax.set(ylabel='time (ms)', xlabel='N={}, n={}'.format(N, n))
 ax.set(xticks=[])
 ax.axhline(33, c='k', ls='--') # 30 hz sampling?
 ax.legend()
-plt.savefig('figcode/end-to-end.pdf', bbox_inches='tight')
-
-# %%
+# plt.savefig('end-to-end.pdf', bbox_inches='tight')
