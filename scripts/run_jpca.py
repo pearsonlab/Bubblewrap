@@ -25,13 +25,12 @@ d = data.shape[1]
 
 ## parameters
 
-num_d = 2
 # d = 6
-N = num_d**d
-step = 8e-1
+N = 64 #3**6 #num_d**d
+step = 8e-2
 lam = 1e-3
 nu = 1e-3 
-eps = 0 #1e-3
+eps = 1e-3
 
 M = 60
 # T = 300    #500 + M
@@ -41,10 +40,12 @@ t_wait = 1
 B_thresh = -10
 n_thresh = 5e-4
 
+mu_diff = 5e-2
+
 batch = False
 batch_size = 1 
 
-gq = GQDS(N, num_d, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size)
+gq = GQDS(N, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size, mu_diff=mu_diff)
 
 ## initialize things
 for i in np.arange(0,M): #,batch_size):
@@ -91,6 +92,7 @@ for i in np.arange(init, end, step):
     times_obs.append(time.time()-t1)
     t2 = time.time()
     gq.em_step()    
+    gq.grad_Q()
     times.append(time.time()-t2)    
 
     if make_movie:
