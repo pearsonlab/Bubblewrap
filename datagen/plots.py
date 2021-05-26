@@ -99,19 +99,19 @@ def plot_scatter_connected(data, ax, alpha=0.4):
     return
 
 # draws gq nodes and variance
-def draw_bubbles(i, M, N, data, gq, ax=None):
+def draw_bubbles(N, gq, sig_ell=1, ax=None):
     if ax is None:
         fig, ax = plt.subplots()
     
-    ax.scatter(data[:i+1+M, 0], data[:i+1+M, 1], c=np.arange(0, i+1+M), alpha=0.3)
     for n in np.arange(N):
         if n in gq.dead_nodes:
             ## don't plot dead nodes
             pass
         else:
-            # sig = gq.L[n] @ gq.L[n].T
-            u,s,v = np.linalg.svd(gq.L[n])
-            width, height = np.sqrt(s[0])*1, np.sqrt(s[1])*1 #*=4
+            el = np.linalg.inv(gq.L[n][:2,:2])
+            sig = el.T @ el
+            u,s,v = np.linalg.svd(sig)
+            width, height = np.sqrt(s[0])*(sig_ell**2), np.sqrt(s[1])*(sig_ell**2) #*=4
             if width>1e5 or height>1e5:
                 pass
             else:
