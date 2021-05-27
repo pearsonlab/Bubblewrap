@@ -18,21 +18,28 @@ from datagen import plots
 from math import atan2, floor
 
 ## Load data from datagen/datagen.py vdp
-s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.05.npz')
-data = s['y'][0]
+# s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.05.npz')
+# data = s['y'][0]
+
+npz = np.load('neuropixel_reduced.npz')
+projed = npz['ssSVD10'].T
+
+total = projed.shape[0] # not all the timepoints
+data = projed[:total, :]
+
 T = data.shape[0]       # should be 20k
 d = data.shape[1]       # should be 2
 T = 2000
-
+# breakpoint()
 ## Bubblewrap parameters
 # num_d = 10
 # d = 6
-N = 10000 #22**3 #num_d**d
+N = 1000 #22**3 #num_d**d
 lam = 1e-3
 nu = 1e-3 
 eps = 0 #1e-3
 
-step = 8e-1
+step = 8e-2
 
 M = 30
 # T = 300    #500 + M
@@ -46,7 +53,7 @@ mu_diff = 0.01
 batch = False
 batch_size = 1 #50
 
-gq = GQDS(N, 22, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size) #, mu_diff=mu_diff)
+gq = GQDS(N, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size) #, mu_diff=mu_diff)
 
 ## initialize things
 for i in np.arange(0,M): #,batch_size):
@@ -188,14 +195,14 @@ if make_movie:
 # plt.plot(np.array(gq.pred))
 # var_tmp = np.convolve(np.array(gq.pred), np.ones(500)/500, mode='valid')
 # plt.plot(var_tmp, 'k')
-# # for tt in gq.teleported_times:
-# #     plt.axvline(x=tt, color='r', lw=1)
+# # # for tt in gq.teleported_times:
+# # #     plt.axvline(x=tt, color='r', lw=1)
 
-# # plt.show()
+# # # plt.show()
 
-# plt.figure()
-# plt.plot(np.array(gq.entropy_list))
-# plt.hlines(np.log2(N), 0, T, 'k', '--')
+# # plt.figure()
+# # plt.plot(np.array(gq.entropy_list))
+# # plt.hlines(np.log2(N), 0, T, 'k', '--')
 
 # plt.figure()
 # axs = plt.gca()
@@ -230,10 +237,10 @@ if make_movie:
 # axs.scatter(gq.mu[:,0], gq.mu[:,1], c='k' , zorder=10)
 
 
-# plt.figure()
-# plt.plot(gq.time_em[10:])
-# plt.plot(gq.time_grad_Q[10:])
-# plt.plot(gq.time_observe[10:])
+# # plt.figure()
+# # plt.plot(gq.time_em[10:])
+# # plt.plot(gq.time_grad_Q[10:])
+# # plt.plot(gq.time_observe[10:])
 
 # plt.show()
 
