@@ -18,7 +18,7 @@ from datagen import plots
 from math import atan2, floor
 
 ## Load data from datagen/datagen.py vdp
-# s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.05.npz')
+# s = np.load('vdp_1trajectories_2dim_500to20500_noise0.05.npz')
 # data = s['y'][0]
 
 npz = np.load('neuropixel_reduced.npz')
@@ -50,14 +50,14 @@ n_thresh = 5e-4
 
 mu_diff = 0.01
 
-batch = False
-batch_size = 1 #50
+batch = True
+batch_size = 10 #50
 
 gq = GQDS(N, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size) #, mu_diff=mu_diff)
 
 ## initialize things
-for i in np.arange(0,M): #,batch_size):
-    gq.observe(data[i]) #:i+batch_size])
+for i in np.arange(0,M,batch_size):
+    gq.observe(data[i:i+batch_size])
 
 gq.init_nodes()
 print('Nodes initialized')
@@ -97,14 +97,14 @@ step = batch_size
 for i in np.arange(init, end, step):
     # print(i)
     t1 = time.time()
-    gq.observe(data[i+M])
-    times_obs.append(time.time()-t1)
+    gq.observe(data[i+M:i+M+step])
+    times_obs.append((time.time()-t1)/step)
     t2 = time.time()
     gq.em_step()  
-    times_em.append(time.time()-t2) 
+    times_em.append((time.time()-t2)/step) 
     t3 = time.time() 
     gq.grad_Q()
-    times_Q.append(time.time()-t3)    
+    times_Q.append((time.time()-t3)/step)    
 
     if make_movie:
         if True: #i < 200 or i > 300:
@@ -242,7 +242,7 @@ if make_movie:
 # # plt.plot(gq.time_grad_Q[10:])
 # # plt.plot(gq.time_observe[10:])
 
-# plt.show()
+plt.show()
 
 print('----------------')
 

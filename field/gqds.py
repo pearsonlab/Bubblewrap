@@ -176,7 +176,7 @@ class GQDS():
         self.t = 1
 
 
-    @profile
+    # @profile
     def observe(self, x):
         # Get new data point and update observation history
         # timer = time.time()
@@ -189,7 +189,7 @@ class GQDS():
             self.obs.new_obs(x)
 
         
-        if self.obs.cov  is not None and self.mu_orig is not None:
+        if self.obs.cov is not None and self.mu_orig is not None:
             # breakpoint()
             # self.mu_orig, self.sigma_orig = self.update0_obs(self.obs.mean, self.mu_diff, self.obs.cov, self.nu, self.d, self.N)
             # self.mu_orig = 0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=self.mu_diff*np.sqrt(np.diagonal(self.obs.cov)), size=(self.N, self.d))
@@ -201,7 +201,7 @@ class GQDS():
          
         # self.time_observe.append(time.time()-timer)
 
-    @profile
+    # @profile
     def em_step(self):
         # take step in E and M; after observation
         # timer=time.time()
@@ -214,12 +214,15 @@ class GQDS():
         
         # self.time_em.append(time.time()-timer)
 
-    @profile
+    # @profile
     def single_em_step(self, x):
         # t0 = time.time()
         self.beta = 1 + 10/(self.t+1)
 
         self.B = self.logB_jax(x, self.mu, self.L, self.L_diag)
+
+        # if np.any(np.isnan(self.B)):
+        #     breakpoint()
         
         ### Compute log predictive probability and entropy; turn off for faster code 
         # t1 = time.time()
@@ -238,14 +241,14 @@ class GQDS():
 
         # self.time_em.append(time.time()-t2 + t1-t0)
 
-    @profile
+    # @profile
     def update_B(self, x):
         
         # ma = self.B < self.B_thresh
         # m = np.max(self.B)
         # b = numpy.array(self.B)
 
-        if self.get_max(self.B) < self.B_thresh:
+        if numpy.max(self.B) < self.B_thresh:
             # if ma.any():
             if not (self.dead_nodes):
                 target = numpy.argmin(self.n_obs)
@@ -264,7 +267,7 @@ class GQDS():
 
         self.current_node, self.B = self.expB_jax(self.B)
 
-    @profile
+    # @profile
     def remove_dead_nodes(self):
 
         # timer = time.time()
@@ -282,7 +285,7 @@ class GQDS():
                 print('Removed dead node ', actual_ind, ' at time ', self.t)
         # self.time_remove_dead_nodes.append(time.time()-timer)
 
-    @profile
+    # @profile
     def teleport_node(self, x):
         # timer = time.time()
         node = self.dead_nodes.pop(0)
@@ -304,7 +307,7 @@ class GQDS():
         # self.time_teleport.append(time.time()-timer)
         return node
 
-    @profile
+    # @profile
     def grad_Q(self):
         # timer = time.time()
         divisor = 1+self.sum_me(self.En)
@@ -320,7 +323,7 @@ class GQDS():
         # self.time_grad_Q.append(time.time()-timer)
         # self.Q_list.append(Q_value)
 
-    @profile
+    # @profile
     def run_adam(self, mu, L, L_diag, A):
         ## inputs are gradients
         self.m_mu, self.v_mu, self.mu = single_adam(self.step, self.m_mu, self.v_mu, mu, self.t, self.mu)
@@ -465,7 +468,7 @@ class Observations:
         
         self.n_obs = 0
 
-    @profile
+    # @profile
     def new_obs(self, coord_new):
         self.curr = coord_new
         self.saved_obs.append(self.curr)
