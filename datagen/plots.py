@@ -63,10 +63,14 @@ def plot_color(x, y, t, ax=None, colorbar=True, cmap="viridis", alpha=0.9, **kwa
 
 
 # draws connected graph of gq nodes
-def draw_graph(gq, ax, mu=None, thresh=0.005, alpha=.7, zord=0, node_shape='o', node_color='gray', cmap=plt.cm.binary_r):
-    A = np.array(gq.A)
-    G = nx.Graph(A)
+def draw_graph(gq, ax, A=None, mu=None, thresh=0.005, alpha=.7, zord=0, node_shape='o', node_color='gray', cmap=plt.cm.binary_r):
+    if A is None:
+        A = np.array(gq.A)
 
+    if mu is None:
+        mu = gq.mu
+
+    G = nx.Graph(A)
     # filter out all edges above threshold and grab id's
     threshold = thresh
     small_edges = list(filter(lambda e: e[2] < threshold, (e for e in G.edges.data('weight'))))
@@ -74,15 +78,16 @@ def draw_graph(gq, ax, mu=None, thresh=0.005, alpha=.7, zord=0, node_shape='o', 
     print(len(se_ids))
     # remove filtered edges from graph G
     G.remove_edges_from(se_ids)
-
-    if mu is None:
-        mu = gq.mu
+    G.remove_nodes_from(list(nx.isolates(G))) # get rid of nodes with no edges
+    
     # draw
     edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
     nx.draw(G, mu[:, :2], node_color=node_color, node_size=50, ax=ax,
         edgelist=edges, edge_color=np.asarray(weights), width=2.0, node_shape=node_shape,
         edge_cmap=cmap, linewidths=1, alpha=alpha)
     ax.collections[0].set_edgecolor("#000000")
+    return
+
 
 # scatter of datapoints connected by lines of same colormap
 def plot_scatter_connected(data, ax, alpha=0.4):
@@ -95,15 +100,18 @@ def plot_scatter_connected(data, ax, alpha=0.4):
 
     ax.scatter(xs, ys, c=np.arange(xy.shape[0]), alpha=alpha, marker='o')
     ax.add_collection(coll)
-
     return
 
-# draws gq nodes and variance
-def draw_bubbles(N, gq, sig_ell=1, ax=None):
+
+# draws gq nodes and variance (if specific nodes, make sure node_list is unique)
+def draw_bubbles(gq, sig_ell=1, ax=None, node_list=None):
     if ax is None:
         fig, ax = plt.subplots()
-    
-    for n in np.arange(N):
+
+    if node_list is None:
+        node_list = np.arange(gq.N)
+
+    for n in node_list:
         if n in gq.dead_nodes:
             ## don't plot dead nodes
             pass
@@ -124,4 +132,5 @@ def draw_bubbles(N, gq, sig_ell=1, ax=None):
                 ax.add_artist(el)
         
             # plt.text(gq.mu[n,0]+1, gq.mu[n,1], str(n))
-    ax.scatter(gq.mu[:,0], gq.mu[:,1], c='k' , zorder=10)
+            ax.scatter(gq.mu[n,0], gq.mu[n,1], c='k' , zorder=10)
+    return
