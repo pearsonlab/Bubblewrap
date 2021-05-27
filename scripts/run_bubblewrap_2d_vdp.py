@@ -18,18 +18,19 @@ from datagen import plots
 from math import atan2, floor
 
 ## Load data from datagen/datagen.py vdp
-s = np.load('vdp_1trajectories_2dim_500to20500_noise0.05.npz')
+s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.05.npz')
 data = s['y'][0]
 T = data.shape[0]       # should be 20k
 d = data.shape[1]       # should be 2
+T = 2000
 
 ## Bubblewrap parameters
 # num_d = 10
 # d = 6
-N = 10**d #num_d**d
+N = 10000 #22**3 #num_d**d
 lam = 1e-3
 nu = 1e-3 
-eps = 1e-3
+eps = 0 #1e-3
 
 step = 8e-1
 
@@ -45,7 +46,7 @@ mu_diff = 0.01
 batch = False
 batch_size = 1 #50
 
-gq = GQDS(N, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size, mu_diff=mu_diff)
+gq = GQDS(N, 22, d, step=step, lam=lam, M=M, eps=eps, nu=nu, t_wait=t_wait, B_thresh=B_thresh, n_thresh=n_thresh, batch=batch, batch_size=batch_size) #, mu_diff=mu_diff)
 
 ## initialize things
 for i in np.arange(0,M): #,batch_size):
@@ -78,7 +79,8 @@ if make_movie:
 
 ## run online
 timer = time.time()
-times = []
+times_em = []
+times_Q = []
 times_obs = []
 
 init = -M
@@ -91,9 +93,11 @@ for i in np.arange(init, end, step):
     gq.observe(data[i+M])
     times_obs.append(time.time()-t1)
     t2 = time.time()
-    gq.em_step()    
+    gq.em_step()  
+    times_em.append(time.time()-t2) 
+    t3 = time.time() 
     gq.grad_Q()
-    times.append(time.time()-t2)    
+    times_Q.append(time.time()-t3)    
 
     if make_movie:
         if True: #i < 200 or i > 300:
@@ -169,7 +173,8 @@ for i in np.arange(init, end, step):
         print(i+M, 'frames processed. Time elapsed ', time.time()-timer)
 
 print('Done fitting all data online')
-print('Average cycle time: ', np.mean(np.array(times)[20:]))
+print('Average em time: ', np.mean(np.array(times_em)[20:]))
+print('Average Q time: ', np.mean(np.array(times_Q)[20:]))
 print('Average observation time: ', np.mean(np.array(times_obs)[20:]))
 # print('Average prediction time: ', np.mean(np.array(gq.time_pred)[20:]))
 
@@ -179,52 +184,58 @@ if make_movie:
 
 ## plotting
 
-plt.figure()
-plt.plot(np.array(gq.pred))
-var_tmp = np.convolve(np.array(gq.pred), np.ones(500)/500, mode='valid')
-plt.plot(var_tmp, 'k')
-# for tt in gq.teleported_times:
-#     plt.axvline(x=tt, color='r', lw=1)
+# plt.figure()
+# plt.plot(np.array(gq.pred))
+# var_tmp = np.convolve(np.array(gq.pred), np.ones(500)/500, mode='valid')
+# plt.plot(var_tmp, 'k')
+# # for tt in gq.teleported_times:
+# #     plt.axvline(x=tt, color='r', lw=1)
+
+# # plt.show()
+
+# plt.figure()
+# plt.plot(np.array(gq.entropy_list))
+# plt.hlines(np.log2(N), 0, T, 'k', '--')
+
+# plt.figure()
+# axs = plt.gca()
+# axs.plot(data[:i+1+M+step,0], data[:i+1+M+step,1], color='gray', alpha=0.8)
+# # axs.plot(data[i+M+step-1:i+1+M+step,0], data[i+M+step-1:i+1+M+step,1], lw=2, color='b')
+# for n in np.arange(N):
+#     if n in gq.dead_nodes: # or (gq.n_obs[n] < 0.08):
+# # #         ## don't plot dead nodes
+#         pass
+#     else:
+#         el = np.linalg.inv(gq.L[n][:2,:2])
+#         sig = el.T @ el
+#         u,s,v = np.linalg.svd(sig)
+#         width, height = np.sqrt(s[0]*9), np.sqrt(s[1]*9) #*=4
+#         # if width>1e5 or height>1e5:
+#         #     pass
+#         # else:
+#         angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
+#         # breakpoint()
+#         el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
+#         el.set_alpha(0.2)
+#         el.set_clip_box(axs.bbox)
+#         el.set_facecolor('r')  ##ed6713')
+#         axs.add_artist(el)
+    
+#         # axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
+
+# mask = np.ones(gq.mu.shape[0], dtype=bool)
+# if gq.dead_nodes:
+#     mask[np.array(gq.dead_nodes)] = False
+#     mask[gq.n_obs<1e-4] = False
+# axs.scatter(gq.mu[:,0], gq.mu[:,1], c='k' , zorder=10)
+
+
+# plt.figure()
+# plt.plot(gq.time_em[10:])
+# plt.plot(gq.time_grad_Q[10:])
+# plt.plot(gq.time_observe[10:])
 
 # plt.show()
-
-plt.figure()
-plt.plot(np.array(gq.entropy_list))
-plt.hlines(np.log2(N), 0, T, 'k', '--')
-
-plt.figure()
-axs = plt.gca()
-axs.plot(data[:i+1+M+step,0], data[:i+1+M+step,1], color='gray', alpha=0.8)
-# axs.plot(data[i+M+step-1:i+1+M+step,0], data[i+M+step-1:i+1+M+step,1], lw=2, color='b')
-for n in np.arange(N):
-    if n in gq.dead_nodes: # or (gq.n_obs[n] < 0.08):
-# #         ## don't plot dead nodes
-        pass
-    else:
-        el = np.linalg.inv(gq.L[n][:2,:2])
-        sig = el.T @ el
-        u,s,v = np.linalg.svd(sig)
-        width, height = np.sqrt(s[0]*9), np.sqrt(s[1]*9) #*=4
-        # if width>1e5 or height>1e5:
-        #     pass
-        # else:
-        angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
-        # breakpoint()
-        el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
-        el.set_alpha(0.2)
-        el.set_clip_box(axs.bbox)
-        el.set_facecolor('r')  ##ed6713')
-        axs.add_artist(el)
-    
-        # axs.text(gq.mu[n,0]+0.01, gq.mu[n,1], s=str(n))
-
-mask = np.ones(gq.mu.shape[0], dtype=bool)
-if gq.dead_nodes:
-    mask[np.array(gq.dead_nodes)] = False
-    mask[gq.n_obs<1e-4] = False
-axs.scatter(gq.mu[:,0], gq.mu[:,1], c='k' , zorder=10)
-
-plt.show()
 
 print('----------------')
 

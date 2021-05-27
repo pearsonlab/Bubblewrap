@@ -128,7 +128,7 @@ class GQDS():
 
         ## Set up gradients
         ## Change grad to value_and_grad if we want Q values
-        self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,0,0)))
+        self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,None,None)))
 
         ## Other jitted functions
         self.logB_jax = jit(vmap(single_logB, in_axes=(None, 0, 0, 0)))
@@ -184,18 +184,18 @@ class GQDS():
 
         self.sigma_orig = self.obs.cov 
         if self.sigma_orig is not None and self.mu_orig is not None:
-            lamr = 0.02
-            eta = np.sqrt(lamr * np.diagonal(self.obs.cov))
+            # lamr = 0.02
+            # eta = np.sqrt(lamr * np.diagonal(self.obs.cov))
             # p = eta*numpy.random.normal(size=(self.N, self.d))
-            self.mu_orig = (1-lamr)*self.mu_orig + lamr*self.obs.mean + eta*numpy.random.normal(size=(self.N, self.d))
+            # self.mu_orig = (1-lamr)*self.mu_orig + lamr*self.obs.mean #+ eta*numpy.random.normal(size=(self.N, self.d))
             
             # breakpoint()
             # self.mu_orig, self.sigma_orig = self.update0_obs(self.obs.mean, self.mu_diff, self.obs.cov, self.nu, self.d, self.N)
-            # self.mu_orig = 0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=0.01*np.sqrt(np.diagonal(self.obs.cov)), size=(self.N, self.d))
+            self.mu_orig = 0.99*self.obs.mean + 0.01*numpy.random.normal(self.obs.mean, scale=0.02*np.sqrt(np.diagonal(self.obs.cov))) #, size=(self.N, self.d))
             # self.mu_orig += 0.001*numpy.random.normal(self.obs.mean, scale=self.mu_diff*np.sqrt(np.diagonal(self.obs.cov)), size=(self.N, self.d))
             # self.mu_orig += 0.001*random.multivariate_normal(self.key, self.obs.mean, self.mu_diff*self.obs.cov, (self.N, self.d))
             # self.mu0_list.append(self.mu_orig)
-            self.mus_orig = self.get_mus0(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
+            self.mus_orig = np.outer(self.mu_orig, self.mu_orig) #self.get_mus0(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
             self.sigma_orig *= (self.nu + self.d + 1) / (self.N**(2/self.d))
 
             
