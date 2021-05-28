@@ -33,11 +33,11 @@ def saveplot():
     ax.set_title('predictive log probability at each time step')
     ax.legend()
 
-    ax.set_ylim([sys.argv[4], sys.argv[5]])
+    ax.set_ylim([float(sys.argv[4]), float(sys.argv[5])])
 
     plt.savefig(f"{os.path.splitext(os.path.basename(sys.argv[3]))[0]}.svg")
 
-
+    plt.show()
 
 if __name__ == '__main__':
     if len(sys.argv) == 6:

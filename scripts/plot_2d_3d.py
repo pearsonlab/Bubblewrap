@@ -6,6 +6,46 @@ import matplotlib.pylab as plt
 from matplotlib.patches import Ellipse
 from math import atan2, floor
 
+from scipy.stats import gaussian_kde
+
+
+fig = plt.figure()
+axs = plt.gca()
+
+### mouse
+data = np.load('../ssSVD/reduced_mouse.npy').T
+
+A = np.load('mouse_A.npy')
+mu = np.load('mouse_mu.npy')
+L = np.load('mouse_L.npy')
+n_obs = np.load('mouse_n_obs.npy')
+
+# pred = np.load('mouse_pred.npy')
+# entropy = np.load('mouse_entropy.npy')
+xy = np.vstack([data[:,0], data[:,1]])
+z = gaussian_kde(xy)(xy)
+
+axs.scatter(data[:,0], data[:,1], c=z, alpha=1)
+for n in np.arange(A.shape[0]):
+    if n_obs[n] > 0.2:
+        el = np.linalg.inv(L[n])
+        sig = el.T @ el
+        u,s,v = np.linalg.svd(sig)
+        width, height = np.sqrt(s[0])*3, np.sqrt(s[1])*3
+        angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
+        el = Ellipse((mu[n,0], mu[n,1]), width, height, angle, zorder=8)
+        el.set_alpha(0.4)
+        el.set_clip_box(axs.bbox)
+        el.set_facecolor('#ed6713')
+        axs.add_artist(el)
+
+# mask = np.ones(mu.shape[0], dtype=bool)
+# mask[n_obs<2e-1] = False
+# axs.scatter(mu[mask,0], mu[mask,1], c='k' , zorder=10)
+
+
+breakpoint()
+##################
 
 fig = plt.figure(figsize=plt.figaspect(0.5))
 axs = fig.add_subplot(1, 2, 1)
@@ -34,7 +74,7 @@ for n in np.arange(A.shape[0]):
         el = Ellipse((mu[n,0], mu[n,1]), width, height, angle, zorder=8)
         el.set_alpha(0.4)
         el.set_clip_box(axs.bbox)
-        el.set_facecolor('r')  ##ed6713')
+        el.set_facecolor('#ed6713')
         axs.add_artist(el)
 
 mask = np.ones(mu.shape[0], dtype=bool)
@@ -96,7 +136,7 @@ for n in np.arange(A.shape[0]):
         b = b + mu[n,1]
         c = c + mu[n,2]
         
-        axs.plot_surface(a, b, c, color='r', alpha=0.3)
+        axs.plot_surface(a, b, c, color='#ed6713', alpha=0.3)
 
 axs.view_init(40,23)
 

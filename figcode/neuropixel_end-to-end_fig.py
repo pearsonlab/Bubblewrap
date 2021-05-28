@@ -1,14 +1,14 @@
-#%%
+#
 import time
 import numpy as np
 
 import matplotlib.pyplot as plt
 
 from sklearn import random_projection as rp
-from proSVD import proSVD
+# import streamingSVD.proSVD as proSVD
 from field.gqds import GQDS
 
-#%% reduction functions
+# reduction functions
 def reduce_sparseRP(X, comps=100, eps=0.1, transformer=None):
     if transformer is None:
         transformer = rp.SparseRandomProjection(n_components=comps, eps=eps)
@@ -25,7 +25,7 @@ def embed_data(X, N):
     Q, R = np.linalg.qr(A)
     return Q @ X
 
-#%% generate data
+# generate data
 n = 15             # original dim
 N = 1000           # embed dim
 k = 15             # reduced dim
@@ -42,7 +42,7 @@ X_true = np.random.normal(size=(n, t))
 X = embed_data(X_true, N)
 # plt.plot(X_true.T)
 
-#%% get timing for each step
+# get timing for each step
 rp_dim = 200
 svd_dim = 10
 iters = 20
@@ -57,8 +57,9 @@ for i in range(iters):
 rp_times_mean = np.array(times).mean() * 1000
 rp_times_std = np.array(times).std() * 1000 / np.sqrt(iters-1)
 
+breakpoint()
 
-#%%
+#
 l = 1 # one vector at a time
 # ssSVD
 pro = proSVD(svd_dim, trueSVD=False, history=0)
@@ -72,7 +73,7 @@ svd_times_mean = np.array(times).mean() * 1000
 svd_times_std = np.array(times).std() * 1000 / np.sqrt(iters-1)
 
 
-#%% bubblewrap
+# bubblewrap
 ignore_iters = 5
 dt = 0.1
 M = 10
@@ -112,7 +113,7 @@ for i in np.arange(iters+1): # plus 1 to avoid the first one
 bw_times_mean = np.array(times[ignore_iters:]).mean() * 1000
 bw_times_std = np.array(times[ignore_iters:]).std() * 1000 / np.sqrt(iters-1)
 
-#%% plot
+# plot
 
 label = ['N = 1000', 'N = 10000']
 bar_labels = ['rp N->n', 'svd n->k', 'bubblewrap']

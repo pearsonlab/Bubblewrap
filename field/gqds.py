@@ -56,7 +56,7 @@ class GQDS():
         if not self.batch: self.batch_size = 1
 
         ## TODO: setup proper logging
-        self.printing = True
+        self.printing = False
         
         self.key = random.PRNGKey(self.seed)
         numpy.random.seed(self.seed)
@@ -64,7 +64,7 @@ class GQDS():
         # observations of the data; M is how many to keep in history
         if self.batch: M=self.batch_size
         self.obs = Observations(self.d, M=M)
-
+        self.mu_orig = None
         
     def init_nodes(self):
         ### Based on observed data so far of length M
@@ -89,8 +89,8 @@ class GQDS():
         self.lam = self.lam_0 * prior 
         self.n_obs = 0*self.alpha
 
-        self.mu_orig = np.mean(self.mu, axis=0)
-        self.mus_orig = np.outer(self.mu_orig, self.mu_orig) 
+        self.mu_orig = self.mu.copy() #np.mean(self.mu, axis=0)
+        self.mus_orig = vmap(get_mus, 0)(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig) 
 
         ### Initialize model parameters (A,En,...)
         self.A = np.ones((self.N,self.N)) - np.eye(self.N)#*0.99999
@@ -124,7 +124,7 @@ class GQDS():
 
         ## Set up gradients
         ## Change grad to value_and_grad if we want Q values
-        self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,None,None)))
+        self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,0,0)))
 
         ## Other jitted functions
         self.logB_jax = jit(vmap(single_logB, in_axes=(None, 0, 0, 0)))
@@ -135,6 +135,7 @@ class GQDS():
         self.sum_me = jit(sum_me)
         self.compute_L = jit(vmap(get_L, (0,0)))
         self.get_amax = jit(amax)
+        self.get_mus0 = jit(vmap(get_mus, 0))
 
         ## for adam gradients
         self.m_mu = np.zeros_like(self.mu)
@@ -148,8 +149,8 @@ class GQDS():
         self.v_A = np.zeros_like(self.A)
 
         ## Variables for keeping track of dead nodes
-        self.dead_nodes = [] # np.arange(0,self.N).tolist()
-        self.dead_nodes_ind = 0*self.n_thresh*numpy.ones(self.N)
+        self.dead_nodes = np.arange(0,self.N).tolist()
+        self.dead_nodes_ind = self.n_thresh*numpy.ones(self.N)
         self.current_node = 0 
     
         ## Variables for tracking progress
@@ -179,10 +180,13 @@ class GQDS():
             self.obs.new_obs(x)
 
         self.sigma_orig = self.obs.cov 
-        if self.sigma_orig is not None:
-            self.mu_orig = 0.99*self.obs.mean + numpy.random.normal(self.obs.mean, scale=self.mu_diff*np.sqrt(np.diagonal(self.obs.cov)))
+        if self.sigma_orig is not None and self.mu_orig is not None:
+            lamr = 0.02
+            eta = np.sqrt(lamr * np.diag(self.obs.cov))
+            
+            self.mu_orig = (1-lamr)*self.mu_orig + lamr*self.obs.mean + eta*numpy.random.normal(size=(self.N, self.d))
             # self.mu0_list.append(self.mu_orig)
-            self.mus_orig = get_mus(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
+            self.mus_orig = self.get_mus0(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
             self.sigma_orig *= (self.nu + self.d + 1) / (self.N**(2/self.d))
          
         # self.time_observe.append(time.time()-timer)
@@ -284,6 +288,9 @@ class GQDS():
         (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(self.mu, self.L_lower, self.L_diag, self.log_A, self.S1, self.lam, self.S2, self.n_obs, self.En, self.nu, self.sigma_orig, self.beta, self.d, self.mu_orig, self.mus_orig)
 
         self.run_adam(grad_mu/divisor, grad_L/divisor, grad_L_diag/divisor, grad_A/divisor)
+
+        if np.any(np.isnan(self.mu)):
+            breakpoint
         
         self.A = sm(self.log_A)
 
