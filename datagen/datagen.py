@@ -96,7 +96,7 @@ def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
 
     for i in trange(num_trajectories):
         t, x, projed = gen_data_diffeq(f, random_proj,
-                                       t=(0, 12500), x0=x0 + 0.01 * rng.randn(num_dim), dim=num_dim, noise="normal",
+                                       t=(0, 12500), x0=x0 + 0.01 * rng.randn(*x0.shape), dim=num_dim, noise="normal",
                                        ivp_kwargs={'max_step': 0.05},
                                        noise_kwargs={"loc": 0, "scale": noise},)
         t = t[begin:end]
@@ -123,10 +123,10 @@ def generate_lorenz():
     * num_dim = 3 or 200 # 3 is to match with bubblewrap and 200 is from the original memming 2020 paper
     1 x 1 x 2 x 2 = 12 example datasets
     """
-    for num_trajectory in [100]:
+    for num_trajectory in [1]:
         for (begin, end) in [(500, 20500)]:
-            for noise in [0.05, 0.2]:
-                for num_dim in [3]:
+            for noise in [0.05]:
+                for num_dim in [10000]:
                     make_dataset(lorenz, x0=np.array([0, 1, 1.05]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end, noise=noise)
 
 
@@ -139,10 +139,10 @@ def generate_vdp():
     * num_dim = 2 or 200 # 2 is to match with bubblewrap and 200 is from the original memming 2020 paper
     1 x 1 x 2 x 2 = 12 example datasets
     """
-    for num_trajectory in [100]:
+    for num_trajectory in [1]:
         for (begin, end) in [(500, 20500)]:
-            for noise in [0.05, 0.2]:
-                for num_dim in [2]:
+            for noise in [0.05]:
+                for num_dim in [10000]:
                     make_dataset(vdp, x0=np.array([0.1, 0.1]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end,
                                      noise=noise)
 
