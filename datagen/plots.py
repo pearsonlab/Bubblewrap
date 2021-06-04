@@ -104,7 +104,7 @@ def plot_scatter_connected(data, ax, alpha=0.4):
 
 
 # draws gq nodes and variance (if specific nodes, make sure node_list is unique)
-def draw_bubbles(gq, sig_ell=1, ax=None, node_list=None):
+def draw_bubbles(gq, sig_ell=1, alpha_ell=.1, ax=None, node_list=None, alpha_node=1, plot_dead_nodes=False):
     if ax is None:
         fig, ax = plt.subplots()
 
@@ -112,25 +112,45 @@ def draw_bubbles(gq, sig_ell=1, ax=None, node_list=None):
         node_list = np.arange(gq.N)
 
     for n in node_list:
-        if n in gq.dead_nodes:
-            ## don't plot dead nodes
+        if ~plot_dead_nodes and (n in gq.dead_nodes):
+        ## don't plot dead nodes
             pass
         else:
             el = np.linalg.inv(gq.L[n][:2,:2])
             sig = el.T @ el
             u,s,v = np.linalg.svd(sig)
-            width, height = np.sqrt(s[0])*(sig_ell**2), np.sqrt(s[1])*(sig_ell**2) #*=4
+            width, height = np.sqrt(s[0])*sig_ell, np.sqrt(s[1])*sig_ell #*=4
             if width>1e5 or height>1e5:
                 pass
             else:
                 angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
                 # breakpoint()
                 el = Ellipse((gq.mu[n,0],gq.mu[n,1]), width, height, angle, zorder=8)
-                el.set_alpha(0.2)
+                el.set_alpha(alpha_ell)
                 el.set_clip_box(ax.bbox)
-                el.set_facecolor('r')  ##ed6713')
+                el.set_facecolor('#FF4400')  ##ed6713')
                 ax.add_artist(el)
         
             # plt.text(gq.mu[n,0]+1, gq.mu[n,1], str(n))
-            ax.scatter(gq.mu[n,0], gq.mu[n,1], c='k' , zorder=10)
+            ax.scatter(gq.mu[n,0], gq.mu[n,1], c='k' , zorder=10, alpha=alpha_node)
     return
+
+# plot for log pred prob and entropy
+def plot_pred_entropy(gq, ax):
+    pred = np.array(gq.pred)
+    entropy = np.array(gq.entropy_list)
+
+    ax.plot(pred, 'b', alpha=0.3)
+    var_tmp = ewma(pred, 100)
+    ax.plot(var_tmp, 'k', lw=1, zorder=10)
+
+    ax2 = ax.twinx()
+    ax2.plot(entropy, 'g', alpha=0.3)
+    ax2.hlines(np.log2(gq.N), 0, entropy.shape[0], 'g', '--', lw=1, zorder=10)
+    var_tmp = ewma(entropy, 100)
+    ax2.plot(var_tmp, 'k')
+    return ax2
+
+# smoothing for log pred prob and entropy
+def ewma(data, com):
+    return np.array(pd.DataFrame(data=dict(data=data)).ewm(com).mean()['data'])
