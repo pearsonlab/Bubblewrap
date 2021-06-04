@@ -1,4 +1,4 @@
-datagen.py
+## datagen.py
     This script generates the simulated Van der pol and Lorenz attractor datasets.
         usage: `python datagen.py (vdp | lorenz)`
         output: 4 npz files for each run. 
@@ -11,7 +11,7 @@ datagen.py
         output[‘u’] is the controls that are all zeros
 
 
-ZP2016.ipynb
+## ZP2016.ipynb
     This Jupyter notebook runs the ZP2016 model using your desired dataset. 
     Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using ‘ssSVD’ first. 
 
@@ -21,7 +21,7 @@ ZP2016.ipynb
     Section #10 and 11 are for making the log probability plots and computing the mean and std values in `Table 1`. 
 
 
-VJF.ipynb
+## VJF.ipynb
     This Jupyter notebook runs the VJF model using your desired dataset. 
     Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using ‘ssSVD’ first. 
 
