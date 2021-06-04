@@ -7,9 +7,14 @@ We provide an environment file for use with conda to create a new environment wi
 Additionally, if running comparison models, VJF can be installed from its source repository (pip install git+https://github.com/catniplab/vjf.git).
 
 ## Evaluation
-We provide a number of python scripts and jupyter notebooks for data generation (for simulated datasets), streaming dimension reduction, running our model bubblewrap, and running comparison models (VJF and ZP(2016)). 
+We provide a number of python scripts and jupyter notebooks for:
+* data generation (for simulated datasets), in `datagen.py`
+* streaming dimension reduction, for example `scripts/dimension_reduction_neuropixels.py`
+* running our model bubblewrap, for example `scripts/run_bubblewrap.py`
+* running comparison models (VJF and ZP(2016)), for example `models/VJF.ipynb`.
 
-### Data generation: datagen/datagen.py
+
+### Data generation: datagen.py
 This script generates the simulated Van der pol and Lorenz attractor datasets.
 
 * usage: `python datagen.py (vdp | lorenz)`
@@ -22,14 +27,17 @@ This script generates the simulated Van der pol and Lorenz attractor datasets.
         output[‘y’] is the observations
         output[‘u’] is the controls that are all zeros
 
-### Dimension reduction: dimension_reduction_neuropixels.py
+
+### Dimension reduction: scripts/dimension_reduction_neuropixels.py
 This script loads the neuropixels data from https://doi.org/10.25378/janelia.7739750.v4 and uses Random Projections then ssSVD to produce a reduced dimension dataset, which is fed into Bubblewrap or ZP2016/VJF. The value 'X' can be replaced with any MxN matrix, where columns are neurons and rows are timepoints. 
 
-### Running Bubblewap
-scripts/run_bubblewrap.py
-Can also plot using scripts/plot_2d_3d.py
 
-### Model comparison: ZP2016.ipynb
+### Running Bubblewap: scripts/run_bubblewrap.py
+This script loads pre-generated data from the 2D Van der Pol oscillator case, as generated with `python datagen.py vdp`. It creates the Bubblewrap model and runs online, with a plot of the log predictive probability generated upon completion. If desired, the relevant objects (such as the tile final locations) can also be saved for later plotting in, for example `scripts/plot_2d_3d.py`.
+scripts/run_bubblewrap.py
+
+
+### Model comparison: models/ZP2016.ipynb
 This Jupyter notebook runs the ZP2016 model using your desired dataset. 
 Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using `ssSVD` first. 
 
@@ -39,7 +47,7 @@ Before running this, make a dataset either by the simulation using `dataset.py` 
 * Section #10 and 11 are for making the log probability plots and computing the mean and std values in `Table 1`. 
 
 
-### Model comparison: VJF.ipynb
+### Model comparison: models/VJF.ipynb
 This Jupyter notebook runs the VJF model using your desired dataset. 
 Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using `ssSVD` first. 
 
