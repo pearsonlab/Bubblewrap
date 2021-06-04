@@ -1,4 +1,3 @@
-# import numpy as np
 import numpy
 import networkx as nx
 import jax.numpy as np
@@ -6,7 +5,6 @@ from math import floor
 import time
 from collections import deque
 
-# from . import Observations
 from field.utils import center_mass
 
 from jax import jit, grad, vmap, value_and_grad
@@ -16,7 +14,6 @@ from scipy.stats import multivariate_normal as mvn
 from jax.scipy.special import logsumexp as lse
 
 import matplotlib.tri as mtri
-# from scipy.special import softmax, log_softmax
 from jax import nn, random
 from jax.ops import index, index_update
 from jax.experimental import optimizers
@@ -24,20 +21,9 @@ from jax._src.lax.linalg import triangular_solve
 
 
 epsilon = 1e-10
-# np.set_printoptions(precision=4)
-# np.set_printoptions(suppress=True)
-# np.seterr(invalid='raise')
 
-# import jax
-# jax.config.update('jax_platform_name', 'cpu')
-# from jax.config import config
-# config.update("jax_debug_nans", True)
-
-
-## Working title: 'Graph quantized dynamical systems' (gqds) --> need to rename to Bubblewrap TODO
-
-class GQDS():
-    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1, mu_diff=1e-2):
+class Bubblewrap():
+    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1, go_fast = False):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
@@ -49,21 +35,22 @@ class GQDS():
         self.n_thresh = n_thresh
         self.t_wait = t_wait
         self.step = step
-        self.mu_diff = mu_diff
 
         self.batch = batch
         self.batch_size = batch_size
         if not self.batch: self.batch_size = 1
 
-        ## TODO: setup proper logging
         self.printing = False
+
+        self.go_fast = go_fast
         
         self.key = random.PRNGKey(self.seed)
         numpy.random.seed(self.seed)
 
         # observations of the data; M is how many to keep in history
         if self.batch: M=self.batch_size
-        self.obs = Observations(self.d, M=M)
+        self.obs = Observations(self.d, M=M, go_fast=go_fast)
+        self.get_mus0 = jit(vmap(get_mus, 0))
         self.mu_orig = None
         
     def init_nodes(self):
@@ -75,7 +62,7 @@ class GQDS():
         if len(self.obs.saved_obs) > 1:
             obs_com = center_mass(self.obs.saved_obs)
         else:
-            ## this section for if we init mesh with no data
+            ## this section for if we init nodes with no data
             obs_com = 0
             self.obs.curr = com
             self.obs.obs_com = com
@@ -89,14 +76,14 @@ class GQDS():
         self.lam = self.lam_0 * prior 
         self.n_obs = 0*self.alpha
 
-        self.mu_orig = self.mu.copy() #np.mean(self.mu, axis=0)
-        self.mus_orig = vmap(get_mus, 0)(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig) 
+        self.mu_orig = self.mu.copy() 
+        self.mus_orig = self.get_mus0(self.mu_orig) 
 
         ### Initialize model parameters (A,En,...)
-        self.A = np.ones((self.N,self.N)) - np.eye(self.N)#*0.99999
+        self.A = np.ones((self.N,self.N)) - np.eye(self.N)
         self.A /= np.sum(self.A, axis=1)
         self.B = np.zeros((self.N))
-        self.En = np.zeros((self.N,self.N)) #(1/self.N) * np.ones((self.N,self.N))
+        self.En = np.zeros((self.N,self.N)) 
 
         self.S1 = np.zeros((self.N,self.d))
         self.S2 = np.zeros((self.N,self.d,self.d))
@@ -106,25 +93,24 @@ class GQDS():
         fullSigma = numpy.zeros((self.N,self.d,self.d), dtype="float32")
         self.L = numpy.zeros((self.N,self.d,self.d))
         self.L_diag = numpy.zeros((self.N,self.d))
-        if self.batch:
+        if self.batch and not self.go_fast:
             var = self.obs.cov
         else:
             var = np.diag(np.var(np.array(self.obs.saved_obs), axis=0))
         for n in numpy.arange(self.N):
-            # self.fullSigma[n] = numpy.diagflat(self.sigma_scale*(1/self.scale)*numpy.ones((self.d), dtype="float32"))*(1/self.N) / (self.nu[n] + self.d + 2 +  self.n_obs[n])#[...,None]
             fullSigma[n] = var * (self.nu + self.d + 1) / (self.N**(2/self.d))
-            # self.fullSigma[n] = np.eye(self.d)
-
+            
             ## Optimization is done with L split into L_lower and L_diag elements
             ## L is defined using cholesky of precision matrix, NOT covariance
             L = np.linalg.cholesky(fullSigma[n])
             self.L[n] = np.linalg.inv(L).T
             self.L_diag[n] = np.log(np.diag(self.L[n]))        
-        self.L_lower = np.tril(self.L,-1)         
+        self.L_lower = np.tril(self.L,-1)        
+        self.sigma_orig = fullSigma[0] 
 
         ## Set up gradients
         ## Change grad to value_and_grad if we want Q values
-        self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,0,0)))
+        self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,0)))
 
         ## Other jitted functions
         self.logB_jax = jit(vmap(single_logB, in_axes=(None, 0, 0, 0)))
@@ -135,7 +121,6 @@ class GQDS():
         self.sum_me = jit(sum_me)
         self.compute_L = jit(vmap(get_L, (0,0)))
         self.get_amax = jit(amax)
-        self.get_mus0 = jit(vmap(get_mus, 0))
 
         ## for adam gradients
         self.m_mu = np.zeros_like(self.mu)
@@ -160,6 +145,7 @@ class GQDS():
         self.time_observe = []
         self.time_updates = []
         self.time_grad_Q = []
+        self.time_pred = []
         self.entropy_list = []
         ## If we use value_and_grad above to look at Q over time
         self.Q_list = []
@@ -167,7 +153,6 @@ class GQDS():
         self.t = 1
 
 
-    # @profile
     def observe(self, x):
         # Get new data point and update observation history
 
@@ -179,22 +164,17 @@ class GQDS():
         else:
             self.obs.new_obs(x)
 
-        self.sigma_orig = self.obs.cov 
-        if self.sigma_orig is not None and self.mu_orig is not None:
+        
+        if not self.go_fast and self.obs.cov is not None and self.mu_orig is not None:
             lamr = 0.02
             eta = np.sqrt(lamr * np.diag(self.obs.cov))
             
             self.mu_orig = (1-lamr)*self.mu_orig + lamr*self.obs.mean + eta*numpy.random.normal(size=(self.N, self.d))
-            # self.mu0_list.append(self.mu_orig)
-            self.mus_orig = self.get_mus0(self.mu_orig) #np.outer(self.mu_orig, self.mu_orig)
-            self.sigma_orig *= (self.nu + self.d + 1) / (self.N**(2/self.d))
+            self.sigma_orig = self.obs.cov * (self.nu + self.d + 1) / (self.N**(2/self.d))
          
-        # self.time_observe.append(time.time()-timer)
 
-    # @profile
     def em_step(self):
         # take step in E and M; after observation
-        # timer=time.time()
             
         if self.batch:
             for o in self.obs.saved_obs:
@@ -202,7 +182,7 @@ class GQDS():
         else:
             self.single_em_step(self.obs.curr)
 
-    # @profile
+
     def single_em_step(self, x):
 
         self.beta = 1 + 10/(self.t+1)
@@ -210,10 +190,16 @@ class GQDS():
         self.B = self.logB_jax(x, self.mu, self.L, self.L_diag)
         
         ### Compute log predictive probability and entropy; turn off for faster code 
-        new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) #, self.current_node)
-        self.pred.append(new_log_pred)
-        ent = entropy(self.A, self.alpha)
-        self.entropy_list.append(ent)
+        if not self.go_fast:
+            new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) 
+            self.pred.append(new_log_pred)
+            ent = entropy(self.A, self.alpha)
+            self.entropy_list.append(ent)
+
+        ## timing
+        timer = time.time()
+        new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) 
+        self.time_pred.append(time.time()-timer)
 
         self.update_B(x)
 
@@ -221,10 +207,10 @@ class GQDS():
         
         self.t += 1     
 
-    # @profile
+
     def update_B(self, x):
         
-        if numpy.max(self.B) < self.B_thresh:
+        if np.max(self.B) < self.B_thresh:
             if not (self.dead_nodes):
                 target = numpy.argmin(self.n_obs)
 
@@ -242,13 +228,13 @@ class GQDS():
 
         self.current_node, self.B = self.expB_jax(self.B)
 
-    # @profile
+
     def remove_dead_nodes(self):
 
         ma = (self.n_obs + self.dead_nodes_ind) < self.n_thresh
 
         if ma.any():
-            ind2 = self.get_amax(ma) #numpy.argmax(ma)  ?
+            ind2 = self.get_amax(ma) 
         
             # try:
             self.n_obs, self.S1, self.S2, self.En, self.log_A = self.kill_nodes(ind2, self.n_thresh, self.n_obs, self.S1, self.S2, self.En, self.log_A)
@@ -259,7 +245,6 @@ class GQDS():
                 print('Removed dead node ', actual_ind, ' at time ', self.t)
             
 
-    # @profile
     def teleport_node(self, x):
         node = self.dead_nodes.pop(0)
         
@@ -279,26 +264,21 @@ class GQDS():
 
         return node
 
-    # @profile
+
     def grad_Q(self):
 
         divisor = 1+self.sum_me(self.En)
-        # (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(self.mu, self.L_lower, self.L_diag, self.log_A, self.lam, self.S1, self.S2, self.En, self.nu, self.n_obs, self.beta*np.ones((self.N,1)), self.mu_orig, self.fullSigma_orig, self.d*np.ones((self.N,1)), self.mus_orig)
-        # mu, L_lower, L_diag, log_A, S1, lam, sigma_orig, S2, n_obs, nu, En, beta, d
-        (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(self.mu, self.L_lower, self.L_diag, self.log_A, self.S1, self.lam, self.S2, self.n_obs, self.En, self.nu, self.sigma_orig, self.beta, self.d, self.mu_orig, self.mus_orig)
+        (grad_mu, grad_L, grad_L_diag, grad_A) = self.grad_all(self.mu, self.L_lower, self.L_diag, self.log_A, self.S1, self.lam, self.S2, self.n_obs, self.En, self.nu, self.sigma_orig, self.beta, self.d, self.mu_orig)
 
         self.run_adam(grad_mu/divisor, grad_L/divisor, grad_L_diag/divisor, grad_A/divisor)
-
-        if np.any(np.isnan(self.mu)):
-            breakpoint
         
         self.A = sm(self.log_A)
 
-        self.L = self.compute_L(self.L_diag, self.L_lower) #vmap(get_L, (0,0))(self.L_diag, self.L_lower)
-       
+        self.L = self.compute_L(self.L_diag, self.L_lower)
+
         # self.Q_list.append(Q_value)
 
-    # @profile
+
     def run_adam(self, mu, L, L_diag, A):
         ## inputs are gradients
         self.m_mu, self.v_mu, self.mu = single_adam(self.step, self.m_mu, self.v_mu, mu, self.t, self.mu)
@@ -309,7 +289,6 @@ class GQDS():
 
 beta1 = 0.99
 beta2 = 0.999
-
 
 ### A ton of jitted functions for fast code execution
 
@@ -364,10 +343,11 @@ def get_ld(L):
     return -2 * np.sum(L)
 
 @jit
-def Q_j(mu, L_lower, L_diag, log_A, S1, lam, S2, n_obs, En, nu, sigma_orig, beta, d, mu_orig, mus_orig):
+def Q_j(mu, L_lower, L_diag, log_A, S1, lam, S2, n_obs, En, nu, sigma_orig, beta, d, mu_orig):
     L = np.tril(np.diag(np.exp(L_diag) + epsilon) + np.tril(L_lower,-1))
     sig_inv = L @ L.T
     mus = np.outer(mu,mu)
+    mus_orig = np.outer(mu_orig,mu_orig)
     ld = -2 * np.sum(L_diag)
     
     summed = 0
@@ -418,48 +398,36 @@ def log_pred_prob(B, A, alpha):
     return np.log(alpha @ A @ np.exp(B) + 1e-16)
 
 @jit
-def entropy(A, alpha):
-    one = alpha @ A
-    return - np.sum(one.dot(np.log2(alpha @ A)))
+def entropy(A, alpha):vmap(get_L, (0,0))(self.L_diag, self.L_lower)
+       
 
-class Observations:
-    def __init__(self, dim, M=5):
-        self.M = M  # how many observed points to hold in memory
-        self.d = dim  # dimension of coordinate system
-
-        self.curr = None  # np.zeros(self.d)
+        self.curr = None 
         self.saved_obs = deque(maxlen=self.M)
 
         self.mean = None
         self.last_mean = None
 
         self.cov = None
-        # self.last_cov = None
         
         self.n_obs = 0
 
-    # @profile
     def new_obs(self, coord_new):
         self.curr = coord_new
         self.saved_obs.append(self.curr)
         self.n_obs += 1
 
-        if self.mean is None:
-            self.mean = self.curr.copy()
-        else:
-            self.last_mean = self.mean.copy()
-            # self.mean += (self.curr - self.mean)/self.n_obs
-            self.mean = update_mean(self.mean, self.curr, self.n_obs)
-
-        if self.n_obs > 2:
-            # breakpoint()
-            if self.cov is None:
-                self.cov = np.cov(np.array(self.saved_obs).T, bias=True)
+        if not self.go_fast:
+            if self.mean is None:
+                self.mean = self.curr.copy()
             else:
-                # self.last_cov = self.cov
-                # f = (self.n_obs - 1) / self.n_obs
-                # self.cov = f*(self.cov + np.outer(self.last_mean, self.last_mean)) + (1-f)*np.outer(self.curr, self.curr) - np.outer(self.mean, self.mean)
-                self.cov = update_cov(self.cov, self.last_mean, self.curr, self.mean, self.n_obs)
+                self.last_mean = self.mean.copy()
+                self.mean = update_mean(self.mean, self.curr, self.n_obs)
+
+            if self.n_obs > 2:
+                if self.cov is None:
+                    self.cov = np.cov(np.array(self.saved_obs).T, bias=True)
+                else:
+                    self.cov = update_cov(self.cov, self.last_mean, self.curr, self.mean, self.n_obs)
 
 
 @jit 
