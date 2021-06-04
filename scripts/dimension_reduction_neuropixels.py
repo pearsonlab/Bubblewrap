@@ -14,7 +14,7 @@ matdict = sio.loadmat(dataloc+file, squeeze_me=True)
 spks = matdict['stall']
 
 # truncate so it doesn't take forever
-# spks = spks[:, :15000]
+spks = spks[:, :15000]
 
 def reduce_sparseRP(X, comps=100, eps=0.1, transformer=None):
     np.random.seed(42)
