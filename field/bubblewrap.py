@@ -1,5 +1,4 @@
 import numpy
-import networkx as nx
 import jax.numpy as np
 from math import floor
 import time

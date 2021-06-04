@@ -15,4 +15,4 @@ dependencies:
   - scipy
   - scikit-learn
   - pip:
-      - https://storage.googleapis.com/jax-releases/cuda112/jaxlib-0.1.61+cuda112-cp39-none-manylinux2010_x86_64.whl
+      - https://storage.googleapis.com/jax-releases/cuda112/jaxlib-0.1.65+cuda112-cp39-none-manylinux2010_x86_64.whl
