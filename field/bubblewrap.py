@@ -3,9 +3,6 @@ import jax.numpy as np
 from math import floor
 import time
 from collections import deque
-
-from field.utils import center_mass
-
 from jax import jit, grad, vmap, value_and_grad
 import jax.scipy.stats
 from jax.scipy.stats import multivariate_normal as jmvn
@@ -383,6 +380,9 @@ def log_pred_prob(B, A, alpha):
 def entropy(A, alpha):
     one = alpha @ A
     return - np.sum(one.dot(np.log2(alpha @ A)))
+
+def center_mass(points):
+    return numpy.mean(points, axis=0)
 
 class Observations:
     def __init__(self, dim, M=5, go_fast=True):
