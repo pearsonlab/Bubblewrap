@@ -34,7 +34,6 @@ This script loads the neuropixels data from https://doi.org/10.25378/janelia.773
 
 ### Running Bubblewap: scripts/run_bubblewrap.py
 This script loads pre-generated data from the 2D Van der Pol oscillator case, as generated with `python datagen.py vdp`. It creates the Bubblewrap model and runs online, with a plot of the log predictive probability generated upon completion. If desired, the relevant objects (such as the tile final locations) can also be saved for later plotting in, for example `scripts/plot_2d_3d.py`.
-scripts/run_bubblewrap.py
 
 
 ### Model comparison: models/ZP2016.ipynb
