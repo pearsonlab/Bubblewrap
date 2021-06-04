@@ -22,8 +22,11 @@ This script generates the simulated Van der pol and Lorenz attractor datasets.
         output[‘y’] is the observations
         output[‘u’] is the controls that are all zeros
 
+### Running Bubblewap
+scripts/run_bubblewrap.py
+Can also plot using scripts/plot_2d_3d.py
 
-### ZP2016.ipynb
+### Model comparison: ZP2016.ipynb
 This Jupyter notebook runs the ZP2016 model using your desired dataset. 
 Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using `ssSVD` first. 
 
@@ -33,7 +36,7 @@ Before running this, make a dataset either by the simulation using `dataset.py` 
 * Section #10 and 11 are for making the log probability plots and computing the mean and std values in `Table 1`. 
 
 
-### VJF.ipynb
+### Model comparison: VJF.ipynb
 This Jupyter notebook runs the VJF model using your desired dataset. 
 Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using `ssSVD` first. 
 
