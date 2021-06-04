@@ -4,11 +4,12 @@ Repository for code and figures associated with the paper 'Bubblewrap: Online ti
 Our algorithm is implemented in python with some extra packages including: numpy, jax (for GPU), and matplotlib (for plotting). 
 We used python version 3.9 and conda to install the libraries listed in the environment file. 
 We provide an environment file for use with conda to create a new environment with these requirements, though we note that jax requires additional setup for GPU integration (https://github.com/google/jax). 
+Additionally, if running comparison models, VJF can be installed from its source repository (pip install git+https://github.com/catniplab/vjf.git).
 
 ## Evaluation
 We provide a number of python scripts and jupyter notebooks for data generation (for simulated datasets), streaming dimension reduction, running our model bubblewrap, and running comparison models (VJF and ZP(2016)). 
 
-## Data generation: datagen/datagen.py
+### Data generation: datagen/datagen.py
 This script generates the simulated Van der pol and Lorenz attractor datasets.
 
 * usage: `python datagen.py (vdp | lorenz)`
@@ -22,7 +23,7 @@ This script generates the simulated Van der pol and Lorenz attractor datasets.
         output[‘u’] is the controls that are all zeros
 
 
-## ZP2016.ipynb
+### ZP2016.ipynb
 This Jupyter notebook runs the ZP2016 model using your desired dataset. 
 Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using `ssSVD` first. 
 
@@ -32,7 +33,7 @@ Before running this, make a dataset either by the simulation using `dataset.py` 
 * Section #10 and 11 are for making the log probability plots and computing the mean and std values in `Table 1`. 
 
 
-## VJF.ipynb
+### VJF.ipynb
 This Jupyter notebook runs the VJF model using your desired dataset. 
 Before running this, make a dataset either by the simulation using `dataset.py` or make a reduced dataset using `ssSVD` first. 
 
