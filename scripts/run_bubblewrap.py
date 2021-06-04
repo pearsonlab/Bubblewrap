@@ -7,7 +7,7 @@ import matplotlib.pylab as plt
 from matplotlib.patches import Ellipse
 from mpl_toolkits.mplot3d import Axes3D
 
-from field.bubblewrap import Bubblewrap
+from bubblewrap import Bubblewrap
 
 from math import atan2, floor
 
