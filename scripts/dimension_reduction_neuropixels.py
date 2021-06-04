@@ -8,7 +8,7 @@ import proSVD
 
 #%% loading processed matlab data
 # one mouse
-dataloc = '/hdd/pgupta/stringer2019/neuropixels/ephysLoad_output/'
+dataloc = './'
 file = 'WaksmanwithFaces_KS2.mat'
 matdict = sio.loadmat(dataloc+file, squeeze_me=True)
 spks = matdict['stall']
@@ -75,6 +75,6 @@ for i, basis in enumerate(bases):
             projs[i][:, t:t+l] = curr_basis.T @ curr_neural
             t += l
 
-# np.savez('neuropixel_reduced.npz', ssSVD10=proj_stream_ssSVD)
+np.savez('neuropixel_reduced.npz', ssSVD10=proj_stream_ssSVD)
 
 # %%
