@@ -22,6 +22,9 @@ This script generates the simulated Van der pol and Lorenz attractor datasets.
         output[‘y’] is the observations
         output[‘u’] is the controls that are all zeros
 
+### Dimension reduction: dimension_reduction_neuropixels.py
+This script loads the neuropixels data from https://doi.org/10.25378/janelia.7739750.v4 and uses Random Projections then ssSVD to produce a reduced dimension dataset, which is fed into Bubblewrap or ZP2016/VJF. The value 'X' can be replaced with any MxN matrix, where columns are neurons and rows are timepoints. 
+
 ### Running Bubblewap
 scripts/run_bubblewrap.py
 Can also plot using scripts/plot_2d_3d.py
