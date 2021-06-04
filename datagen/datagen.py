@@ -139,9 +139,9 @@ def generate_vdp():
     """
     for num_trajectory in [1, 100]:
         for (begin, end) in [(500, 20500)]:
-            for noise in [0.05, 0.2]:
-                for num_dim in [2]:
-                    make_dataset(vdp, x0=np.array([0.1, 0.1]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end,
+            for noise in [0.05]: #, 0.2]:
+                for num_dim in [10000]:
+                    make_dataset(vdp, x0=np.ones(num_dim)*0.1, num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end,
                                      noise=noise)
 
 if __name__ == '__main__':

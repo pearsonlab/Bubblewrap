@@ -12,12 +12,8 @@ import jax.scipy.stats
 from jax.scipy.stats import multivariate_normal as jmvn
 from scipy.stats import multivariate_normal as mvn
 from jax.scipy.special import logsumexp as lse
-
-import matplotlib.tri as mtri
 from jax import nn, random
 from jax.ops import index, index_update
-from jax.experimental import optimizers
-from jax._src.lax.linalg import triangular_solve
 
 
 epsilon = 1e-10
@@ -147,8 +143,6 @@ class Bubblewrap():
         self.time_grad_Q = []
         self.time_pred = []
         self.entropy_list = []
-        ## If we use value_and_grad above to look at Q over time
-        self.Q_list = []
 
         self.t = 1
 
@@ -158,12 +152,10 @@ class Bubblewrap():
 
         ## Do all observations, and then update mu0, sigma0
         if self.batch:
-            for o in x: # x array of obsevations
+            for o in x: # x array of observations
                 self.obs.new_obs(o)
-        # timer = time.time()
         else:
             self.obs.new_obs(x)
-
         
         if not self.go_fast and self.obs.cov is not None and self.mu_orig is not None:
             lamr = 0.02
@@ -173,17 +165,16 @@ class Bubblewrap():
             self.sigma_orig = self.obs.cov * (self.nu + self.d + 1) / (self.N**(2/self.d))
          
 
-    def em_step(self):
-        # take step in E and M; after observation
-            
+    def e_step(self):
+        # take E step; after observation
         if self.batch:
             for o in self.obs.saved_obs:
-                self.single_em_step(o)
+                self.single_e_step(o)
         else:
-            self.single_em_step(self.obs.curr)
+            self.single_e_step(self.obs.curr)
 
 
-    def single_em_step(self, x):
+    def single_e_step(self, x):
 
         self.beta = 1 + 10/(self.t+1)
 
@@ -195,11 +186,6 @@ class Bubblewrap():
             self.pred.append(new_log_pred)
             ent = entropy(self.A, self.alpha)
             self.entropy_list.append(ent)
-
-        ## timing
-        timer = time.time()
-        new_log_pred = self.log_pred_prob(self.B, self.A, self.alpha) 
-        self.time_pred.append(time.time()-timer)
 
         self.update_B(x)
 
@@ -275,8 +261,6 @@ class Bubblewrap():
         self.A = sm(self.log_A)
 
         self.L = self.compute_L(self.L_diag, self.L_lower)
-
-        # self.Q_list.append(Q_value)
 
 
     def run_adam(self, mu, L, L_diag, A):
@@ -385,7 +369,6 @@ def update_internal(A, B, last_alpha, En, eps, S1, obs_curr, S2, n_obs):
 def kill_dead_nodes(ind2, n_thresh, n_obs, S1, S2, En, log_A):
     N = n_obs.shape[0]
     d = S1.shape[1]
-    # for n_i in ind2:
     n_obs = index_update(n_obs, index[ind2], 0)
     S1 = index_update(S1, index[ind2], np.zeros(d))
     S2 = index_update(S2, index[ind2], np.zeros((d,d)))
@@ -398,8 +381,15 @@ def log_pred_prob(B, A, alpha):
     return np.log(alpha @ A @ np.exp(B) + 1e-16)
 
 @jit
-def entropy(A, alpha):vmap(get_L, (0,0))(self.L_diag, self.L_lower)
-       
+def entropy(A, alpha):
+    one = alpha @ A
+    return - np.sum(one.dot(np.log2(alpha @ A)))
+
+class Observations:
+    def __init__(self, dim, M=5, go_fast=True):
+        self.M = M  # how many observed points to hold in memory
+        self.d = dim  # dimension of coordinate system
+        self.go_fast = go_fast
 
         self.curr = None 
         self.saved_obs = deque(maxlen=self.M)
