@@ -1,3 +1,7 @@
+
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = "0"
+
 import time
 import numpy as np
 
@@ -11,15 +15,17 @@ from bubblewrap import Bubblewrap
 
 from math import atan2, floor
 
+
 ## Load data from datagen/datagen.py 
-s = np.load('vdp_1trajectories_2dim_500to20500_noise0.05.npz')
+# s = np.load('vdp_1trajectories_2dim_500to20500_noise0.05.npz')
+s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.05.npz')
 data = s['y'][0]
 
 T = data.shape[0]       # should be 20k
 d = data.shape[1]       # should be 2
 
 ## Parameters
-N = 100             # number of nodes to tile with
+N = 1000             # number of nodes to tile with
 lam = 1e-3          # lambda 
 nu = 1e-3           # nu
 eps = 1e-3          # epsilon sets data forgetting
@@ -55,8 +61,16 @@ print('Done fitting all data online')
 
 ## Plotting
 plt.figure()
-plt.plot(bw.pred)
-var_tmp = np.convolve(bw.pred, np.ones(500)/500, mode='valid')
+plt.plot(bw.pred_far)
+print('Mean pred ahead: ', np.mean(np.array(bw.pred_far)[-floor(T/2):]))
+var_tmp = np.convolve(bw.pred_far, np.ones(500)/500, mode='valid')
+plt.plot(var_tmp, 'k')
+
+
+plt.figure()
+plt.plot(bw.entropy_list)
+print('Mean entropy: ', np.mean(np.array(bw.entropy_list)[-floor(T/2):]))
+var_tmp = np.convolve(bw.entropy_list, np.ones(500)/500, mode='valid')
 plt.plot(var_tmp, 'k')
 plt.show()
 
