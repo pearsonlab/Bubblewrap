@@ -6,62 +6,21 @@ import matplotlib.pylab as plt
 from matplotlib.patches import Ellipse
 from math import atan2, floor
 
-from scipy.stats import gaussian_kde
-
-
-fig = plt.figure()
-axs = plt.gca()
-
-### mouse
-data = np.load('../ssSVD/reduced_mouse.npy').T
-
-A = np.load('mouse_A.npy')
-mu = np.load('mouse_mu.npy')
-L = np.load('mouse_L.npy')
-n_obs = np.load('mouse_n_obs.npy')
-
-# pred = np.load('mouse_pred.npy')
-# entropy = np.load('mouse_entropy.npy')
-xy = np.vstack([data[:,0], data[:,1]])
-z = gaussian_kde(xy)(xy)
-
-axs.scatter(data[:,0], data[:,1], c=z, alpha=1)
-for n in np.arange(A.shape[0]):
-    if n_obs[n] > 0.2:
-        el = np.linalg.inv(L[n])
-        sig = el.T @ el
-        u,s,v = np.linalg.svd(sig)
-        width, height = np.sqrt(s[0])*3, np.sqrt(s[1])*3
-        angle = atan2(v[0,1],v[0,0])*360 / (2*np.pi)
-        el = Ellipse((mu[n,0], mu[n,1]), width, height, angle, zorder=8)
-        el.set_alpha(0.4)
-        el.set_clip_box(axs.bbox)
-        el.set_facecolor('#ed6713')
-        axs.add_artist(el)
-
-# mask = np.ones(mu.shape[0], dtype=bool)
-# mask[n_obs<2e-1] = False
-# axs.scatter(mu[mask,0], mu[mask,1], c='k' , zorder=10)
-
-
-breakpoint()
-##################
 
 fig = plt.figure(figsize=plt.figaspect(0.5))
 axs = fig.add_subplot(1, 2, 1)
-
 
 ### 2D vdp oscillator
 s = np.load('vdp_1trajectories_2dim_500to20500_noise0.05.npz')
 data = s['y'][0]
 
-A = np.load('2d_vdp_A.npy')
-mu = np.load('2d_vdp_mu.npy')
-L = np.load('2d_vdp_L.npy')
-n_obs = np.load('2d_vdp_n_obs.npy')
+A = np.load('vdp_2d_A.npy')
+mu = np.load('vdp_2d_mu.npy')
+L = np.load('vdp_2d_L.npy')
+n_obs = np.load('vdp_2d_n_obs.npy')
 
-pred = np.load('2d_vdp_pred.npy')
-entropy = np.load('2d_vdp_entropy.npy')
+pred = np.load('vdp_2d_pred.npy')
+entropy = np.load('vdp_2d_entropy.npy')
 
 axs.plot(data[:,0], data[:,1], color='gray', alpha=0.8)
 for n in np.arange(A.shape[0]):
@@ -78,8 +37,14 @@ for n in np.arange(A.shape[0]):
         axs.add_artist(el)
 
 mask = np.ones(mu.shape[0], dtype=bool)
-mask[n_obs<2e-1] = False
+mask[n_obs<1] = False
 axs.scatter(mu[mask,0], mu[mask,1], c='k' , zorder=10)
+
+axs.set_xticks([-2, -1, 0, 1, 2])
+axs.set_yticks([-6, -3, 0, 3, 6])
+
+in1, in2 = -0.15, 1
+axs.text(in1, in2, s='a', transform=axs.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
 
 
 ### 3D lorenz
@@ -102,17 +67,17 @@ X = X.flatten()
 s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.05.npz')
 data = s['y'][0]
 
-A = np.load('3d_lorenz_A.npy')
-mu = np.load('3d_lorenz_mu.npy')
-L = np.load('3d_lorenz_L.npy')
-n_obs = np.load('3d_lorenz_n_obs.npy')
+A = np.load('lorenz_3d_A.npy')
+mu = np.load('lorenz_3d_mu.npy')
+L = np.load('lorenz_3d_L.npy')
+n_obs = np.load('lorenz_3d_n_obs.npy')
 
-pred = np.load('3d_lorenz_pred.npy')
-entropy = np.load('3d_lorenz_entropy.npy')
+pred = np.load('lorenz_3d_pred.npy')
+entropy = np.load('lorenz_3d_entropy.npy')
 
 axs.plot(data[:,0], data[:,1], data[:,2], color='gray', alpha=0.8)
 for n in np.arange(A.shape[0]):
-    if n_obs[n] > 0.02:
+    if n_obs[n] > 1e-4:
         el = np.linalg.inv(L[n]).T
         sig = el @ el.T
         # Find and sort eigenvalues to correspond to the covariance matrix
@@ -136,12 +101,22 @@ for n in np.arange(A.shape[0]):
         b = b + mu[n,1]
         c = c + mu[n,2]
         
-        axs.plot_surface(a, b, c, color='#ed6713', alpha=0.3)
+        axs.plot_surface(a, b, c, color='#ff4400', alpha=0.6)
 
 axs.view_init(40,23)
 
 mask = np.ones(mu.shape[0], dtype=bool)
 mask[n_obs<1e-4] = False
-axs.scatter(mu[:,0], mu[:,1], mu[:,2], c='k' , zorder=10)
+axs.scatter(mu[mask,0], mu[mask,1], mu[mask,2], c='k' , zorder=10)
+
+axs.set_xticks([200, 600, 1000, 1400])
+axs.set_yticks([-20, -10, 0, 10])
+axs.set_zticks([-1400, -1000, -600, -200])
+in1, in2 = 0, 1
+axs.text(in1, in2, 100, s='b', transform=axs.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+
+
+# plt.tight_layout()
+# fig.savefig('Fig2_b.png', bbox_inches='tight')
 
 plt.show()

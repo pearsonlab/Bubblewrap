@@ -15,6 +15,12 @@ def normalize(func):
 
     return wrapper
 
+@normalize
+def logistic(x, c):
+    res = list()
+    for i in range(c.shape[0]):
+        res.append(1/(1+exp(-(x - c[i]))))
+    return np.vstack(res).T
 
 @normalize
 def linear(x, c, σ):
