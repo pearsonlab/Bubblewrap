@@ -86,15 +86,15 @@ from models import kernels
 
 
 # load the reduced Monkey reach dataset (See README.md for how the reduced dataset was generated.)
-data = np.load('jpca_reduced.npy')
+# data = np.load('jpca_reduced.npy')
 
-xs = None  # state
-ys = data.T  # observation
-ys = ys[None, ...]
-us = np.zeros((ys.shape[0], ys.shape[1], 1))  # control input
-xdim = 6
-ydim = ys.shape[-1]
-udim = us.shape[-1]
+# xs = None  # state
+# ys = data.T  # observation
+# ys = ys[None, ...]
+# us = np.zeros((ys.shape[0], ys.shape[1], 1))  # control input
+# xdim = 6
+# ydim = ys.shape[-1]
+# udim = us.shape[-1]
 
 
 # #### run the cell below to load the reduced Wide-field calcium imaging dataset
@@ -117,14 +117,14 @@ udim = us.shape[-1]
 
 
 # load the reduced Mouse video dataset (See README.md for how the reduced dataset was generated.)
-# data = np.load('reduced_mouse.npy')
+data = np.load('reduced_mouse.npy')
 
-# xs = None
-# ys = data.T[None, ...]
-# us = np.zeros((ys.shape[0], ys.shape[1], 1))
-# xdim = ys.shape[-1]
-# ydim = ys.shape[-1]
-# udim = us.shape[-1]
+xs = None
+ys = data.T[None, ...]
+us = np.zeros((ys.shape[0], ys.shape[1], 1))
+xdim = ys.shape[-1]
+ydim = ys.shape[-1]
+udim = us.shape[-1]
 
 
 # #### run the cell below for the example Neuropixels dataset
@@ -149,7 +149,7 @@ udim = us.shape[-1]
 
 
 
-ys.shape
+print(ys.shape)
 
 
 # ## 5. Inline implementation of `RBFN` for modifications
@@ -284,7 +284,7 @@ learning_rate = 2e-2      # Adam learning rate
 n_rbf = 50                # number of RBF kernels
 seed = 4                  # random seed
 predict_steps = 10        # 1 for next-step prediction; specifying N will roll additional N-1 steps into the future
-S = 500                  # 
+S = 100                  # 
 P = 10
 
 np.random.seed(seed)
@@ -334,14 +334,11 @@ for trial in np.arange(ys.shape[0]):
             if i and i % P == 0 and i+predict_steps+2 < yy.shape[0]:
                 trajs = np.squeeze(np.array([net.rolling_predict(yy, predict_steps, SE_ewma) for _ in range(S)]))
                 se = np.array((trajs - yy[i+2:i+predict_steps+2])**2)
-                SE_ewma_roll = np.array(np.zeros((S,predict_steps,xdim)) + SE_ewma + (1 / TC) * (se[:,0:1,:] - SE_ewma))
+                # SE_ewma_roll = np.array(np.zeros((S,predict_steps,xdim)) + SE_ewma + (1 / TC) * (se[:,0:1,:] - SE_ewma))
                 
-                for n in np.arange(1,predict_steps):
-                    SE_ewma_roll[:,n,:] = SE_ewma_roll[:,n-1,:] + (1 / TC) * (se[:,n,:] - SE_ewma_roll[:,n-1,:])
+                # for n in np.arange(1,predict_steps):
+                #     SE_ewma_roll[:,n,:] = SE_ewma_roll[:,n-1,:] + (1 / TC) * (se[:,n,:] - SE_ewma_roll[:,n-1,:])
                 
-                p_se = np.mean(np.sum(-0.5 * (se / (SE_ewma_roll) + np.log(2 * (SE_ewma_roll) * np.pi)), axis=2), axis=0)
-                logprobs_per_roll.append(p_se)
-
                 
             mse, (dx, SE) = net.step_online(yy, loop=updates_per_input)            
             dxs.append(dx)
@@ -353,6 +350,13 @@ for trial in np.arange(ys.shape[0]):
 
             logprob = -0.5 * (SE / SE_ewma + np.log(2 * SE_ewma * np.pi)).sum()  # logprob of normal distribution
             logprobs.append(logprob)
+
+            if i and i % P == 0 and i+predict_steps+2 < yy.shape[0]:
+
+                p_se = np.mean(np.sum(-0.5 * (se / (SE_ewma) + np.log(2 * (SE_ewma) * np.pi)), axis=2), axis=0)
+                logprobs_per_roll.append(p_se)
+                # breakpoint()
+
 
             # for t, se in enumerate(rolling_SEs, start=1):
             #     if SE_ewma_roll is None:
@@ -382,7 +386,7 @@ for trial in np.arange(ys.shape[0]):
 
 
 
-np.save('logprob_zp2016_jpca.npy', np.array(logprobs_per_roll).T)
+np.save('logprob_zp2016_mouse_2.npy', np.array(logprobs_per_roll).T)
 
 
 # ## 9. Plotting the log probability 
@@ -470,7 +474,7 @@ for t in range(10):
 
 
 
-np.save('tensteps_zp2016_jpca.npy', ten_step_prediction)
+np.save('tensteps_zp2016_mouse_2.npy', ten_step_prediction)
 
 
 # ## 12. Plot / Save the MSEs per timestep (For Figure S4)

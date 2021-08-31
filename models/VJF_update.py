@@ -239,7 +239,7 @@ q = None
 
 S = 1000  # number of trajectories
 T = 10   # length of each trajectory
-P = 10    # calculate T-step-ahead predictive distribution every P steps
+P = 1    # calculate T-step-ahead predictive distribution every P steps
 
 
 # :
@@ -342,7 +342,7 @@ for trial in trange(yy.shape[0]):
 # :
 
 
-np.save('logprob_vjf_neuropixels_seed2021.npy', np.array(logprob_trajectories[0]))
+np.save('logprob_vjf_neuropixels_seed2021_P1.npy', np.array(logprob_trajectories[0]))
 
 
 # :
@@ -418,7 +418,7 @@ plt.show()
 # :
 
 
-np.save('tensteps_vjf_neuropixels_seed2021.npy', prediction)
+np.save('tensteps_vjf_neuropixels_seed2021_P1.npy', prediction)
 
 
 # 
