@@ -15,7 +15,7 @@ from jax.ops import index, index_update
 epsilon = 1e-10
 
 class Bubblewrap():
-    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1, behavior=False, go_fast = False):
+    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1, go_fast = False):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
@@ -27,11 +27,6 @@ class Bubblewrap():
         self.n_thresh = n_thresh
         self.t_wait = t_wait
         self.step = step
-
-        self.behavior = behavior
-        if self.behavior: 
-            self.w = numpy.zeros(self.N)
-            self.w_count = numpy.ones(self.N)
 
         self.batch = batch
         self.batch_size = batch_size
@@ -46,7 +41,7 @@ class Bubblewrap():
 
         # observations of the data; M is how many to keep in history
         if self.batch: M=self.batch_size
-        self.obs = Observations(self.d, M=M, go_fast=go_fast, behavior=self.behavior)
+        self.obs = Observations(self.d, M=M, go_fast=go_fast)
         self.get_mus0 = jit(vmap(get_mus, 0))
         self.mu_orig = None
         
@@ -104,12 +99,6 @@ class Bubblewrap():
         self.L_lower = np.tril(self.L,-1)        
         self.sigma_orig = fullSigma[0] 
 
-        ## initialize behavior predictions as global mean of data seen so far
-        if self.behavior:
-            self.w += numpy.array([self.obs.beh_mean])
-            self.m_w = np.zeros_like(self.w)
-            self.v_w = np.zeros_like(self.w)
-
         ## Set up gradients
         ## Change grad to value_and_grad if we want Q values
         self.grad_all = jit(vmap(jit(grad(Q_j, argnums=(0,1,2,3))), in_axes=(0,0,0,0,0,0,0,0,0,None,None,None,None,0)))
@@ -121,7 +110,6 @@ class Bubblewrap():
         self.kill_nodes = jit(kill_dead_nodes)
         self.log_pred_prob = jit(log_pred_prob)
         self.pred_ahead = jit(pred_ahead)
-        self.pred_beh = jit(pred_beh)
         self.sum_me = jit(sum_me)
         self.compute_L = jit(vmap(get_L, (0,0)))
         self.get_amax = jit(amax)
@@ -152,7 +140,6 @@ class Bubblewrap():
         self.time_grad_Q = []
         self.time_pred = []
         self.entropy_list = []
-        self.pred_beh_list = []
         self.loss = []
 
         self.t = 1
@@ -164,13 +151,8 @@ class Bubblewrap():
         ## Do all observations, and then update mu0, sigma0
         if self.batch:
             for o in x: # x array of observations
-                if self.behavior and b is not None:
-                    self.obs.new_obs(o, beh=b)
-                else: self.obs.new_obs(o)
+                self.obs.new_obs(o)
         else:
-            if self.behavior and b is not None:
-                    self.obs.new_obs(x, beh=b)
-            else:
                 self.obs.new_obs(x)
         
         if not self.go_fast and self.obs.cov is not None and self.mu_orig is not None:
@@ -203,18 +185,8 @@ class Bubblewrap():
             ent = entropy(self.A, self.alpha)
             self.entropy_list.append(ent)
             self.pred_far.append(self.pred_ahead(self.B, self.A, self.alpha))
-            pred_beh = self.pred_beh(self.alpha, self.w)
-            self.pred_beh_list.append(pred_beh)
 
         self.update_B(x)
-
-        if self.behavior:
-            loss = np.linalg.norm(pred_beh - self.obs.beh)
-            self.loss.append(loss)
-            grad_w = 2*self.alpha*(self.alpha*self.w - self.obs.beh)
-            self.m_w, self.v_w, self.w = single_adam(self.step*10, self.m_w, self.v_w, grad_w, self.t, self.w)
-            # self.w += (self.alpha * self.obs.beh - self.w)/ np.sum(self.alpha) 
-            # self.w[self.current_node] += (self.obs.beh - self.w[self.current_node])/self.w_count[self.current_node]
 
         self.gamma, self.alpha, self.En, self.S1, self.S2, self.n_obs = self.update_internal_jax(self.A, self.B, self.alpha, self.En, self.eps, self.S1, x, self.S2, self.n_obs)
         
@@ -413,10 +385,6 @@ def pred_ahead(B, A, alpha):
     return np.log(alpha @ AT @ np.exp(B) + 1e-16)
 
 @jit
-def pred_beh(w, alpha):
-    return alpha.dot(w)
-
-@jit
 def entropy(A, alpha):
     AT = np.linalg.matrix_power(A,1)
     one = alpha @ AT
@@ -426,7 +394,7 @@ def center_mass(points):
     return numpy.mean(points, axis=0)
 
 class Observations:
-    def __init__(self, dim, M=5, go_fast=True, behavior=False):
+    def __init__(self, dim, M=5, go_fast=True):
         self.M = M  # how many observed points to hold in memory
         self.d = dim  # dimension of coordinate system
         self.go_fast = go_fast
@@ -441,26 +409,18 @@ class Observations:
         
         self.n_obs = 0
 
-        self.behavior = behavior
-        if self.behavior:
-            self.beh_mean = 0
-
-    def new_obs(self, coord_new, beh=0):
+    def new_obs(self, coord_new):
         self.curr = coord_new
         self.saved_obs.append(self.curr)
         self.n_obs += 1
-        if self.behavior:
-            self.beh = beh
-
+       
         if not self.go_fast:
             if self.mean is None:
                 self.mean = self.curr.copy()
             else:
                 self.last_mean = self.mean.copy()
                 self.mean = update_mean(self.mean, self.curr, self.n_obs)
-                if self.behavior:
-                    self.beh_mean = update_mean(self.beh_mean, beh, self.n_obs)
-
+                
             if self.n_obs > 2:
                 if self.cov is None:
                     self.cov = np.cov(np.array(self.saved_obs).T, bias=True)
