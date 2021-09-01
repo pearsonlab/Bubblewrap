@@ -20,7 +20,7 @@ from math import atan2, floor
 s = np.load('lorenz_1trajectories_3dim_500to20500_noise0.05.npz')
 data = s['y'][0]
 
-T = data.shape[0]       # should be 20k
+T = data.shape[0] // 10 # should be 20k
 d = data.shape[1]       # should be 2
 
 ## Parameters
