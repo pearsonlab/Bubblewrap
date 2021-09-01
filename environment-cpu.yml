@@ -1,0 +1,15 @@
+name: neuralflow
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - jax
+  - jupyter
+  - jupyterlab
+  - matplotlib
+  - numpy
+  - pip
+  - pytest
+  - scipy
+  - scikit-learn
+  - tqdm
