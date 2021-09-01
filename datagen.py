@@ -145,6 +145,19 @@ def generate_vdp():
                     make_dataset(vdp, x0=np.array([0.1, 0.1]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end,
                                      noise=noise)
 
+def test_make_dataset():
+    params = dict(
+        num_trajectories=1,
+        begin=500,
+        end=20500,
+        noise=0.05,
+        save=True
+    )
+    
+    make_dataset(lorenz, num_dim=3, x0=np.array([0., 1., 1.05]), **params)
+    make_dataset(vdp,    num_dim=2, x0=np.array([0.1, 0.1])    , **params)
+
+
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == 'lorenz':
         generate_lorenz()
