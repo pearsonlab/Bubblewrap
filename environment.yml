@@ -1,5 +1,7 @@
-name: neuralflow
+name: bubblewrap
 channels:
+  - pytorch
+  - nvidia
   - conda-forge
 dependencies:
   - python=3.9
@@ -14,6 +16,10 @@ dependencies:
   - pytest
   - scipy
   - scikit-learn
+  - pytorch=1.9
+  - torchvision
+  - torchaudio
   - tqdm
   - pip:
+      - git+https://github.com/catniplab/vjf.git@0eec61e91c29cf9a44b48c2a6694234b4404a2b3
       - https://storage.googleapis.com/jax-releases/cuda112/jaxlib-0.1.65+cuda112-cp39-none-manylinux2010_x86_64.whl
