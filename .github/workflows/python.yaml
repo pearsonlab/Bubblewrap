@@ -1,0 +1,45 @@
+name: Run with Conda
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: "2 5 * * *"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+
+      - name: Add conda to system path
+        run: echo $CONDA/bin >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          conda config --add channels conda-forge 
+          conda env update --file environment-cpu.yml --name base
+
+      - name: Run Bubblewrap
+        run: |
+          conda install jupytext
+          pytest datagen.py
+          jupytext --from py --to ipynb scripts/run_bubblewrap.py --execute --run-path .
+          jupyter nbconvert --to html scripts/run_bubblewrap.ipynb
+          mkdir public
+          mv scripts/run_bubblewrap.html public/index.html
+          
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: public
