@@ -89,7 +89,7 @@ def gen_data_diffeq(f: Callable, projection: Callable, *, t, x0: np.ndarray, dim
     return ivp["t"], y, projed
 
 
-def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
+def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise, save=True):
     xx = [] # states
     projeds = [] # observations
     rng = np.random.RandomState(39)
@@ -110,8 +110,9 @@ def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
     ys = projeds
     us = np.zeros((xx.shape[0], xx.shape[1], 1))
 
-    filename = f"{f.__name__}_{num_trajectories}trajectories_{num_dim}dim_{begin}to{end}_noise{noise}.npz"
-    np.savez(filename, x = xs, y = ys, u = us)
+    if save:
+        filename = f"{f.__name__}_{num_trajectories}trajectories_{num_dim}dim_{begin}to{end}_noise{noise}.npz"
+        np.savez(filename, x = xs, y = ys, u = us)
 
 
 def generate_lorenz():
