@@ -6,7 +6,6 @@ import time
 import numpy as np
 
 import matplotlib
-matplotlib.use('TkAgg')
 import matplotlib.pylab as plt
 from matplotlib.patches import Ellipse
 from mpl_toolkits.mplot3d import Axes3D
