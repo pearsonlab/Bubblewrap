@@ -1,6 +1,12 @@
-ephysroot = '/home/carsen/dm11/data/Spikes/eightprobes/'
+% Neuropixels data
+% Download all the files at https://figshare.com/articles/dataset/Eight-probe_Neuropixels_recordings_during_spontaneous_behaviors/7739750
+% Slightly modified from https://figshare.com/ndownloader/files/14570105
+
+ephysroot = '.'
 % mouse names
-mstr = {'Krebs','Waksman','Robbins'};
+% Original: mstr = {'Krebs','Waksman','Robbins'};
+% doing only Waksman
+mstr = {'Waksman'};
 % start of spontaneous activity in each mouse
 tstart = [3811 3633 3323];
 
@@ -13,36 +19,10 @@ load(fullfile(ephysroot, 'probeLocations.mat'));
 areaLabels = {'FrCtx','FrMoCtx','SomMoCtx','SSCtx','V1','V2','RSP',...
 'CP','LS','LH','HPF','TH','SC','MB'};
 
-%% to plot probe in wire brain, download https://github.com/cortex-lab/allenCCF and npy-matlab
-% note that this plot includes every site plotted as a dot - zoom in to see.
-addpath(genpath('/github/allenCCF'));
-addpath(genpath('/github/npy-matlab'));
-plotBrainGrid([], [], [], 0);
-hold all;
-co = get(gca, 'ColorOrder');
-for imouse = 1:3
-  probeColor = co(imouse,:);
-  for pidx = 1:numel(probeLocations(imouse).probe)
-    ccfCoords = probeLocations(imouse).probe(pidx).ccfCoords;
-
-    % here we divide by 10 to convert to units of voxels (this atlas is 10um
-    % voxels, but coordinates are in um) and we swap 3rd with 2nd dimension
-    % because Allen atlas dimensions are AP/DV/LR, but the wiremesh brain has
-    % DV as Z, the third dimension (better for view/rotation in matlab).
-    % So both of these are ultimately quirks of the plotBrainGrid function,
-    % not of the ccfCoords data
-    plot3(ccfCoords(:,1)/10, ccfCoords(:,3)/10, ccfCoords(:,2)/10, '.', 'Color', probeColor,'markersize',4)
-  end
-end
-
-for q = 1:2:360
-  view(q, 25); drawnow;
-end
-
 %%
 % which mouse
 brainLocAll=[];
-for imouse = [1:3]
+for imouse = [1:length(mstr)]
   mouse_name = mstr{imouse};
 
   % load spikes
@@ -118,8 +98,8 @@ for imouse = [1:3]
   x = interp1(tVid, motSVD, tspont);
 
   %%% save the extracted spike matrix and brain locations and faces %%%
-  %save(fullfile(matroot, sprintf('%swithFaces_KS2.mat',mouse_name)), 'stall','Wh','iprobe',...
-  %'motSVD','tspont','tVid','srate','brainLoc','areaLabels');
+  save(fullfile('.', sprintf('%swithFaces_KS2.mat',mouse_name)), 'stall','Wh','iprobe',...
+  'motSVD','tspont','tVid','srate','brainLoc','areaLabels');
 
   brainLocAll=[brainLocAll;brainLoc];
   
