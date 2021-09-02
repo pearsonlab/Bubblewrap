@@ -11,6 +11,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PATH_NEUROPIXELS: ${{ github.workspace }}/data/neuropixels
 
     steps:
       - uses: actions/checkout@v2
@@ -23,6 +25,37 @@ jobs:
       - name: Add conda to system path
         run: echo $CONDA/bin >> $GITHUB_PATH
 
+      - name: Cache Data
+        uses: actions/cache@v2
+        with:
+          path: |
+            $PATH_NEUROPIXELS/faces.zip
+            $PATH_NEUROPIXELS/data/spks.zip
+          key: ${{ runner.os }}-${{ hashFiles('**/neuropixels/*.zip')}}
+          restore-keys: |
+            ${{ runner.os }}-
+      
+      - name: Download Neuropixels Data
+        working-directory: ${{ env.PATH_NEUROPIXELS }}
+        # Neuropixels data see https://figshare.com/articles/dataset/Eight-probe_Neuropixels_recordings_during_spontaneous_behaviors/7739750
+        # Only using data from mouse Waksman
+        run: |
+          wget -O faces.zip -N https://figshare.com/ndownloader/files/14405048
+          wget -O spks.zip  -N https://figshare.com/ndownloader/files/14405057
+          wget -O probeLocations.mat https://figshare.com/ndownloader/files/14570108
+          wget -O probeBorders.mat   https://figshare.com/ndownloader/files/14653298
+          unzip faces.zip -x faces/Robbins_face_proc.mat faces/Krebs_face_proc.mat
+          unzip spks.zip -x spks/Robbins_Feb18.mat spks/Krebs_Feb18.mat
+
+      - name: Set up MATLAB
+        uses: matlab-actions/setup-matlab@v1
+
+      # Result in WaksmanwithFaces_KS2.mat
+      - name: Process raw neuropixels data
+        uses: matlab-actions/run-command@v1
+        with:
+          command: cd('${{ env.PATH_NEUROPIXELS }}'), ephysLoad
+
       - name: Install dependencies
         run: |
           conda config --add channels conda-forge 
@@ -30,6 +63,8 @@ jobs:
 
       - name: Run Bubblewrap
         run: |
+          python scripts/dimension_reduction_neuropixels.py ${{ env.PATH_NEUROPIXELS }}/WaksmanwithFaces_KS2.mat
+
           conda install jupytext
           pytest datagen.py
           jupytext --from py --to ipynb scripts/run_bubblewrap.py --execute --run-path .
