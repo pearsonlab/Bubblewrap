@@ -1,4 +1,4 @@
-name: Run with Conda
+name: Run w/ Synthetic Data
 
 on:
   push:
@@ -71,6 +71,12 @@ jobs:
           jupyter nbconvert --to html scripts/run_bubblewrap.ipynb
           mkdir public
           mv scripts/run_bubblewrap.html public/index.html
+      
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: Synthetic data run
+          path: public/index.html
           
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
