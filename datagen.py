@@ -89,7 +89,7 @@ def gen_data_diffeq(f: Callable, projection: Callable, *, t, x0: np.ndarray, dim
     return ivp["t"], y, projed
 
 
-def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
+def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise, save=True):
     xx = [] # states
     projeds = [] # observations
     rng = np.random.RandomState(39)
@@ -110,8 +110,9 @@ def make_dataset(f, x0, num_trajectories, num_dim, begin, end, noise):
     ys = projeds
     us = np.zeros((xx.shape[0], xx.shape[1], 1))
 
-    filename = f"{f.__name__}_{num_trajectories}trajectories_{num_dim}dim_{begin}to{end}_noise{noise}.npz"
-    np.savez(filename, x = xs, y = ys, u = us)
+    if save:
+        filename = f"{f.__name__}_{num_trajectories}trajectories_{num_dim}dim_{begin}to{end}_noise{noise}.npz"
+        np.savez(filename, x = xs, y = ys, u = us)
 
 
 def generate_lorenz():
@@ -143,6 +144,19 @@ def generate_vdp():
                 for num_dim in [2]:
                     make_dataset(vdp, x0=np.array([0.1, 0.1]), num_trajectories=num_trajectory, num_dim=num_dim, begin=begin, end=end,
                                      noise=noise)
+
+def test_make_dataset():
+    params = dict(
+        num_trajectories=1,
+        begin=500,
+        end=20500,
+        noise=0.05,
+        save=True
+    )
+    
+    make_dataset(lorenz, num_dim=3, x0=np.array([0., 1., 1.05]), **params)
+    make_dataset(vdp,    num_dim=2, x0=np.array([0.1, 0.1])    , **params)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == 'lorenz':

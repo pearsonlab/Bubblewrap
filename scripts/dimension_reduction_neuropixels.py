@@ -1,16 +1,23 @@
 #%%
-import time
-import numpy as np
-from scipy import io as sio
+import os
+import sys
 
-from sklearn import random_projection as rp
+sys.path.append(os.path.abspath(os.path.dirname("__file__")))
+
+import time
+from pathlib import Path
+
+import numpy as np
 import proSVD
+from scipy import io as sio
+from sklearn import random_projection as rp
 
 #%% loading processed matlab data
 # one mouse
-dataloc = './'
-file = 'WaksmanwithFaces_KS2.mat'
-matdict = sio.loadmat(dataloc+file, squeeze_me=True)
+assert len(sys.argv) == 2
+file = Path(sys.argv[1])
+
+matdict = sio.loadmat(file, squeeze_me=True)
 spks = matdict['stall']
 
 # truncate so it doesn't take forever
@@ -44,6 +51,8 @@ pro_proj[:, :l1] = pro.Q.T @ spks[:, :l1]
 t = l1
 transformer = rp.SparseRandomProjection(n_components=rp_dim)
 for i in range(num_iters):
+    if i & 15 == 0:  # Check if multiple of 16
+        print(f"ssSVD Iteration {i}/{num_iters}")
     start_rp = time.time()
     X_rp = reduce_sparseRP(X, transformer=transformer)
     end_rp = time.time()
@@ -75,6 +84,6 @@ for i, basis in enumerate(bases):
             projs[i][:, t:t+l] = curr_basis.T @ curr_neural
             t += l
 
-np.savez('neuropixel_reduced.npz', ssSVD10=proj_stream_ssSVD)
+np.savez(file.parent, ssSVD10=proj_stream_ssSVD)
 
 # %%
