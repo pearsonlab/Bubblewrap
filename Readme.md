@@ -2,8 +2,12 @@ Repository for code and figures associated with the paper 'Bubblewrap: Online ti
 
 ## Requirements
 Our algorithm is implemented in python with some extra packages including: numpy, jax (for GPU), and matplotlib (for plotting). 
+
+The streaming dimension-reduction method is hosted in our repository here: [proSVD](https://github.com/pearsonlab/proSVD). Instructions for cloning and installing are included in its Readme. proSVD is needed to run the streaming dimension reduction example. 
+
 We used python version 3.9 and conda to install the libraries listed in the environment file. 
 We provide an environment file for use with conda to create a new environment with these requirements, though we note that jax requires additional setup for GPU integration (https://github.com/google/jax). 
+
 Additionally, if running comparison models, VJF can be installed from its source repository (pip install git+https://github.com/catniplab/vjf.git).
 
 ## Evaluation
