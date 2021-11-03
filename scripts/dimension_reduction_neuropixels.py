@@ -4,7 +4,7 @@ import numpy as np
 from scipy import io as sio
 
 from sklearn import random_projection as rp
-import proSVD
+from proSVD import proSVD
 
 #%% loading processed matlab data
 # one mouse
@@ -56,9 +56,9 @@ for i in range(num_iters):
 
 #%% projecting each timepoint of neural activity onto the subspace learned for that chunk
 proj_stream_ssSVD = np.zeros((pro.Qs.shape[1], pro.Qs.shape[2]*l))
-proj_stream_SVD = np.zeros((pro.Qts.shape[1], pro.Qts.shape[2]*l))
+proj_stream_SVD = np.zeros((pro.Us.shape[1], pro.Us.shape[2]*l))
 projs = [proj_stream_ssSVD, proj_stream_SVD]
-bases = [pro.Qs, pro.Qts]
+bases = [pro.Qs, pro.Us]
 
 for i, basis in enumerate(bases):
     curr_basis = basis[:, :, i] # has first k components
