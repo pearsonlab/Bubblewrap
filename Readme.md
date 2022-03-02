@@ -1,4 +1,4 @@
-Repository for code and figures associated with the paper 'Bubblewrap: Online tiling and real-time flow prediction on neural manifolds'.
+Repository for code and figures associated with the paper ['Bubblewrap: Online tiling and real-time flow prediction on neural manifolds'](https://proceedings.neurips.cc/paper/2021/hash/307eb8ee16198da891c521eca21464c1-Abstract.html).
 
 ## Requirements
 Our algorithm is implemented in python with some extra packages including: numpy, jax (for GPU), and matplotlib (for plotting). 
