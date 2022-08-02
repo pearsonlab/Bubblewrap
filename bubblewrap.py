@@ -9,7 +9,6 @@ from jax.scipy.stats import multivariate_normal as jmvn
 from scipy.stats import multivariate_normal as mvn
 from jax.scipy.special import logsumexp as lse
 from jax import nn, random
-from jax.ops import index, index_update
 
 
 epsilon = 1e-10
@@ -368,11 +367,11 @@ def update_internal(A, B, last_alpha, En, eps, S1, obs_curr, S2, n_obs):
 def kill_dead_nodes(ind2, n_thresh, n_obs, S1, S2, En, log_A):
     N = n_obs.shape[0]
     d = S1.shape[1]
-    n_obs = index_update(n_obs, index[ind2], 0)
-    S1 = index_update(S1, index[ind2], np.zeros(d))
-    S2 = index_update(S2, index[ind2], np.zeros((d,d)))
-    log_A = index_update(log_A, index[ind2], np.zeros(N))
-    log_A = index_update(log_A, index[:,ind2], np.zeros(N))
+    n_obs = n_obs.at[ind2].set(0)
+    S1 = S1.at[ind2].set(np.zeros(d))
+    S2 = S2.at[ind2].set(np.zeros((d,d)))
+    log_A = log_A.at[ind2].set(np.zeros(N))
+    log_A = log_A.at[:, ind2].set(np.zeros(N))
     return n_obs, S1, S2, En, log_A
 
 @jit
