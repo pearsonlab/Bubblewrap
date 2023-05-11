@@ -35,8 +35,9 @@ B_thresh = -10      # threshold for when to teleport (log scale)
 batch = False       # run in batch mode 
 batch_size = 1      # batch mode size; if not batch is 1
 go_fast = False     # flag to skip computing priors, predictions, and entropy for optimal speed
+future_distance = 1
 
-bw = Bubblewrap(N, d, step=step, lam=lam, M=M, eps=eps, nu=nu, B_thresh=B_thresh, batch=batch, batch_size=batch_size, go_fast=go_fast) 
+bw = Bubblewrap(N, d, step=step, lam=lam, M=M, eps=eps, nu=nu, B_thresh=B_thresh, batch=batch, batch_size=batch_size, go_fast=go_fast, future_distance=future_distance)
 
 ## Set up for online run through dataset
 init = -M
@@ -54,7 +55,10 @@ print('Nodes initialized')
 
 ## Run online, 1 data or batch at a time
 for i in np.arange(init, end, step):
-    bw.observe(data[i+M:i+M+step])
+    future_index = i+M+step - 2 + bw.future_distance
+    future_x = data[future_index] if future_index < ((end- 1) + M + step ) else None
+
+    bw.observe(data[i+M:i+M+step], future_x=future_x)
     bw.e_step()  
     bw.grad_Q()
 print('Done fitting all data online')
