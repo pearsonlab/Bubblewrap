@@ -1,4 +1,4 @@
-name: neuralflow
+name: bubblewrap
 channels:
   - conda-forge
 dependencies:

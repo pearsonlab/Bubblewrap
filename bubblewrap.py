@@ -14,7 +14,7 @@ from jax import nn, random
 epsilon = 1e-10
 
 class Bubblewrap():
-    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1, go_fast = False):
+    def __init__(self, num, dim, seed=42, M=30, step=1e-6, lam=1, eps=3e-2, nu=1e-2, B_thresh=1e-4, n_thresh=5e-4, t_wait=1, batch=False, batch_size=1, go_fast = False, future_distance=1):
         self.N = num            # Number of nodes
         self.d = dim            # dimension of the space
         self.seed = seed
@@ -34,6 +34,8 @@ class Bubblewrap():
         self.printing = False
 
         self.go_fast = go_fast
+        self.future_distance = future_distance
+        self.future_x = None
         
         self.key = random.PRNGKey(self.seed)
         numpy.random.seed(self.seed)
@@ -108,7 +110,7 @@ class Bubblewrap():
         self.update_internal_jax = jit(update_internal)
         self.kill_nodes = jit(kill_dead_nodes)
         self.log_pred_prob = jit(log_pred_prob)
-        self.pred_ahead = jit(pred_ahead)
+        self.pred_ahead = jit(pred_ahead, static_argnames=['future_distance'])
         self.sum_me = jit(sum_me)
         self.compute_L = jit(vmap(get_L, (0,0)))
         self.get_amax = jit(amax)
@@ -144,7 +146,7 @@ class Bubblewrap():
         self.t = 1
 
 
-    def observe(self, x, b=None):
+    def observe(self, x, future_x=None, b=None):
         # Get new data point and update observation history
 
         ## Do all observations, and then update mu0, sigma0
@@ -153,6 +155,8 @@ class Bubblewrap():
                 self.obs.new_obs(o)
         else:
                 self.obs.new_obs(x)
+
+        self.future_x = future_x
         
         if not self.go_fast and self.obs.cov is not None and self.mu_orig is not None:
             lamr = 0.02
@@ -183,7 +187,10 @@ class Bubblewrap():
             self.pred.append(new_log_pred)
             ent = entropy(self.A, self.alpha)
             self.entropy_list.append(ent)
-            self.pred_far.append(self.pred_ahead(self.B, self.A, self.alpha))
+            if self.future_x is not None:
+                future_B = self.logB_jax(self.future_x, self.mu, self.L, self.L_diag)
+                pred_far = self.pred_ahead(future_B, self.A, self.alpha, self.future_distance)
+                self.pred_far.append(pred_far)
 
         self.update_B(x)
 
@@ -378,9 +385,9 @@ def kill_dead_nodes(ind2, n_thresh, n_obs, S1, S2, En, log_A):
 def log_pred_prob(B, A, alpha):
     return np.log(alpha @ A @ np.exp(B) + 1e-16)
 
-@jit
-def pred_ahead(B, A, alpha):
-    AT = np.linalg.matrix_power(A,1)
+# @jit
+def pred_ahead(B, A, alpha, future_distance):
+    AT = np.linalg.matrix_power(A,future_distance)
     return np.log(alpha @ AT @ np.exp(B) + 1e-16)
 
 @jit
