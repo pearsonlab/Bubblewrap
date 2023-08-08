@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bubblewrap"
+version = "0.0.1"
+description = "Methods for real-time prediction of latent neural dynamics"
+authors = [{name = "Anne Draelos"},
+           {name = "Pranjal Gupta"},
+           {name = "Na Young Jun"},
+           {name = "Chaichontat Sriworarat"},
+           {name = "John Pearson", email = "john.pearson@duke.edu"}]
+
+readme = "README.md"
+requires-python = ">=3.7"
+keywords = ["neuroscience", "prediction", "dynamics"]
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scikit-learn",
+    "jax[cpu]",
+    "tqdm",
+]
+
+[tool.setuptools]
+py-modules = ["bubblewrap"]
