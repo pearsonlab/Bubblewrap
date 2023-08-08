@@ -1,0 +1,10 @@
+name: bubblewrap
+channels:
+  - conda-forge
+dependencies:
+  - numpy
+  - matplotlib
+  - scikit-learn
+  - jaxlib
+  - jax
+  - tqdm
